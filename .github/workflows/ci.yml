@@ -18,3 +18,7 @@ jobs:
           node-version: 24
       - run: npm install
       - run: npm run build
+      - name: Public production smoke test
+        run: |
+          curl --retry 10 --retry-all-errors --retry-delay 10 -fsSL https://jettyshare-navadeep-17s-projects.vercel.app -o /tmp/jettyshare.html
+          grep -q "JettyShare" /tmp/jettyshare.html
