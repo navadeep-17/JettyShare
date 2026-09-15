@@ -65,7 +65,10 @@ begin
   end if;
 
   -- DB-20 / boundary: spoil wins even if the stale hold would otherwise reopen.
-  update public.listings set expires_at=v_now-interval '1 second' where id=v_id;
+  -- Keep expires_at > created_at so the structural invariant remains valid.
+  update public.listings
+     set created_at=v_now-interval '2 hours', expires_at=v_now-interval '1 second'
+   where id=v_id;
   if private.effective_status((select l from public.listings l where id=v_id), v_now) <> 'EXPIRED' then
     raise exception 'ASSERT_SPOIL_WINS';
   end if;
