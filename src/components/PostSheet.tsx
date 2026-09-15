@@ -1,6 +1,7 @@
 'use client'
 
 import { FormEvent, useState } from 'react'
+import { useModalFocus } from '@/hooks/useModalFocus'
 import { createListing, JettyError } from '@/lib/api'
 import { newListingId, randomCapability } from '@/lib/capabilities'
 import { removeOwnedListing, setOwnedListing, storageAvailable } from '@/lib/storage'
@@ -13,6 +14,7 @@ type PendingAttempt = {
 }
 
 export function PostSheet({ crewLabel, onClose, onPosted }: { crewLabel: string; onClose: () => void; onPosted: () => Promise<unknown> | unknown }) {
+  const dialogRef = useModalFocus(onClose)
   const [itemType, setItemType] = useState<ItemType>('ICE')
   const [quantity, setQuantity] = useState('')
   const [unit, setUnit] = useState<QuantityUnit>('KG')
@@ -115,17 +117,17 @@ export function PostSheet({ crewLabel, onClose, onPosted }: { crewLabel: string;
   const units: QuantityUnit[] = itemType === 'ICE' ? ['KG', 'BOX'] : ['BUCKET', 'TRAY', 'BOX']
 
   return <div className="overlay" role="presentation">
-    <div className="sheet" role="dialog" aria-modal="true" aria-labelledby="post-title">
+    <div ref={dialogRef} className="sheet" role="dialog" aria-modal="true" aria-labelledby="post-title">
       <button className="sheet-close" onClick={onClose} aria-label="Close">×</button>
       <p className="eyebrow">QUICK POST</p>
       <h2 id="post-title">Share surplus supply</h2>
-      <p className="muted">Only the details needed for a fast pickup.</p>
+      <p className="muted">Posting as <strong>{crewLabel}</strong>. Change the local label from Activity for future posts.</p>
       <form onSubmit={submit} className="stack">
         <fieldset disabled={locked || busy}>
           <legend>What are you sharing?</legend>
           <div className="segmented">
-            <button type="button" className={itemType === 'ICE' ? 'selected' : ''} onClick={()=>chooseType('ICE')}>ICE</button>
-            <button type="button" className={itemType === 'BAIT' ? 'selected' : ''} onClick={()=>chooseType('BAIT')}>BAIT</button>
+            <button type="button" aria-pressed={itemType === 'ICE'} className={itemType === 'ICE' ? 'selected' : ''} onClick={()=>chooseType('ICE')}>ICE</button>
+            <button type="button" aria-pressed={itemType === 'BAIT'} className={itemType === 'BAIT' ? 'selected' : ''} onClick={()=>chooseType('BAIT')}>BAIT</button>
           </div>
         </fieldset>
         <div className="field-row">
@@ -136,8 +138,8 @@ export function PostSheet({ crewLabel, onClose, onPosted }: { crewLabel: string;
         <fieldset disabled={locked || busy}>
           <legend>Spoils in</legend>
           <div className="chips">
-            {[15, 30, 60, 120].map(m=><button type="button" key={m} className={spoil === m ? 'selected' : ''} onClick={()=>setSpoil(m)}>{m < 60 ? `${m}m` : `${m / 60}h`}</button>)}
-            <button type="button" className={spoil === 0 ? 'selected' : ''} onClick={()=>setSpoil(0)}>Custom</button>
+            {[15, 30, 60, 120].map(m=><button type="button" key={m} aria-pressed={spoil === m} className={spoil === m ? 'selected' : ''} onClick={()=>setSpoil(m)}>{m < 60 ? `${m}m` : `${m / 60}h`}</button>)}
+            <button type="button" aria-pressed={spoil === 0} className={spoil === 0 ? 'selected' : ''} onClick={()=>setSpoil(0)}>Custom</button>
           </div>
         </fieldset>
         {spoil === 0 && <label>Custom minutes<input disabled={locked || busy} inputMode="numeric" value={custom} onChange={e=>setCustom(e.target.value)} placeholder="45" /></label>}
