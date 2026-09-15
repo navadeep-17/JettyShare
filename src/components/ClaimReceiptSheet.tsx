@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useModalFocus } from '@/hooks/useModalFocus'
 import { Countdown } from './Countdown'
 import { adjustedNow, serverClockOffset } from '@/lib/time'
 import type { ActiveBoardItem, ClaimReceipt } from '@/lib/types'
@@ -18,6 +19,7 @@ export function ClaimReceiptSheet({
   onRelease: () => Promise<void>
   onHoldEnded: () => Promise<void> | void
 }) {
+  const dialogRef = useModalFocus(onClose)
   const offset = useMemo(() => serverClockOffset(receipt.server_now), [receipt.server_now])
   const [nowMs, setNowMs] = useState(() => adjustedNow(offset))
   const [releasing, setReleasing] = useState(false)
@@ -43,7 +45,7 @@ export function ClaimReceiptSheet({
   }
 
   return <div className="overlay" role="presentation">
-    <div className="sheet receipt" role="dialog" aria-modal="true" aria-labelledby="claim-success-title">
+    <div ref={dialogRef} className="sheet receipt" role="dialog" aria-modal="true" aria-labelledby="claim-success-title">
       <button className="sheet-close" onClick={onClose} aria-label="Close">×</button>
       <p className="success-mark">✓</p>
       <h2 id="claim-success-title">Supply claimed</h2>
