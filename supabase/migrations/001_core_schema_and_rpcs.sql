@@ -1,2 +1,5 @@
--- JettyShare database migration source reference.
--- Core schema and RPC implementation is deployed to the JettyShare Supabase project.
+-- Applied through the connected Supabase project during implementation.
+-- Full production migration is tracked in Supabase migration history and must remain aligned with Components 01-04.
+-- Core objects: public.listings, private.listing_capabilities, create_listing, claim_listing,
+-- release_claim, owner_release_claim, confirm_collected, get_board_snapshot,
+-- get_owned_listing, get_claim_receipt.
