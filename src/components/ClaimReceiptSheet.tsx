@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Countdown } from './Countdown'
+import { adjustedNow, serverClockOffset } from '@/lib/time'
 import type { ActiveBoardItem, ClaimReceipt } from '@/lib/types'
 
 export function ClaimReceiptSheet({
@@ -9,15 +10,34 @@ export function ClaimReceiptSheet({
   item,
   onClose,
   onRelease,
+  onHoldEnded,
 }: {
   receipt: ClaimReceipt
   item: ActiveBoardItem
   onClose: () => void
   onRelease: () => Promise<void>
+  onHoldEnded: () => Promise<void> | void
 }) {
+  const offset = useMemo(() => serverClockOffset(receipt.server_now), [receipt.server_now])
+  const [nowMs, setNowMs] = useState(() => adjustedNow(offset))
   const [releasing, setReleasing] = useState(false)
+  const reconciled = useRef(false)
+  const holdEnded = new Date(receipt.claim_expires_at).getTime() <= nowMs
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(adjustedNow(offset)), 1000)
+    return () => window.clearInterval(timer)
+  }, [offset])
+
+  useEffect(() => {
+    if (!holdEnded || reconciled.current) return
+    reconciled.current = true
+    void onHoldEnded()
+  }, [holdEnded, onHoldEnded])
 
   async function release() {
+    if (holdEnded) return
+    if (!window.confirm('Release this claim? The supply will become available to other boats.')) return
     setReleasing(true)
     try { await onRelease() } finally { setReleasing(false) }
   }
@@ -29,14 +49,17 @@ export function ClaimReceiptSheet({
       <h2 id="claim-success-title">Supply claimed</h2>
       <p className="muted">Go directly to the pickup berth.</p>
       <div className="berth-panel"><span>PICKUP</span><strong>BERTH {receipt.berth}</strong></div>
-      <div className="receipt-grid">
+      <p className="posted-by receipt-provider">Provider: {item.poster_label}</p>
+      <div className="receipt-grid receipt-grid-three">
         <div><span>Supply</span><strong>{item.quantity_value} {item.quantity_unit} {item.item_type}</strong></div>
-        <div><span>Spoils</span><strong><Countdown expiresAt={receipt.expires_at} /></strong></div>
+        <div><span>HOLD ENDS</span><strong><Countdown expiresAt={receipt.claim_expires_at} nowMs={nowMs} /></strong></div>
+        <div><span>SPOILS</span><strong><Countdown expiresAt={receipt.expires_at} nowMs={nowMs} /></strong></div>
       </div>
-      <p className="hold-note">Your reservation is held until {new Date(receipt.claim_expires_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} or until the supply spoils, whichever comes first.</p>
+      <p className="hold-note">Reservation deadline: {new Date(receipt.claim_expires_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}. The hold never extends beyond spoil time.</p>
+      {holdEnded && <div className="banner warning" role="status">Reservation hold ended. Checking the latest board state.</div>}
       <div className="receipt-actions">
         <button className="button button-primary" onClick={onClose}>Back to board</button>
-        <button className="button" disabled={releasing} onClick={()=>void release()}>{releasing ? 'Releasing…' : 'I can’t make it — release'}</button>
+        <button className="button" disabled={releasing || holdEnded} onClick={()=>void release()}>{releasing ? 'Releasing…' : holdEnded ? 'Reservation ended' : 'I can’t make it — release'}</button>
       </div>
     </div>
   </div>
