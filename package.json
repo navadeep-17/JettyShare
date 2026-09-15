@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint .",
+    "lint": "eslint src",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -17,6 +17,7 @@
     "react-dom": "^19.1.1"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.1",
     "@tailwindcss/postcss": "^4.1.13",
     "@types/node": "^22.18.3",
     "@types/react": "^19.1.12",
