@@ -1,0 +1,2 @@
+-- JettyShare database migration source reference.
+-- Core schema and RPC implementation is deployed to the JettyShare Supabase project.
