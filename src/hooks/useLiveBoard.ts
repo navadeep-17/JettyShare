@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getBoardSnapshot } from '@/lib/api'
+import { supabase } from '@/lib/supabase'
 import type { BoardSnapshot } from '@/lib/types'
 
 export function useLiveBoard() {
@@ -10,6 +11,7 @@ export function useLiveBoard() {
   const [degraded, setDegraded] = useState(false)
   const generation = useRef(0)
   const hasSnapshot = useRef(false)
+  const debounceTimer = useRef<number | null>(null)
 
   const refresh = useCallback(async () => {
     const mine = ++generation.current
@@ -27,12 +29,32 @@ export function useLiveBoard() {
     }
   }, [])
 
+  const scheduleRefresh = useCallback(() => {
+    if (debounceTimer.current) window.clearTimeout(debounceTimer.current)
+    debounceTimer.current = window.setTimeout(() => void refresh(), 250)
+  }, [refresh])
+
   useEffect(() => { void refresh() }, [refresh])
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('jettyshare:board', { config: { private: false } })
+      .on('broadcast', { event: 'board_changed' }, scheduleRefresh)
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') void refresh()
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') setDegraded(true)
+      })
+
+    return () => {
+      if (debounceTimer.current) window.clearTimeout(debounceTimer.current)
+      void supabase.removeChannel(channel)
+    }
+  }, [refresh, scheduleRefresh])
 
   useEffect(() => {
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') void refresh()
-    }, 15000)
+    }, 60000)
     const onFocus = () => { if (document.visibilityState === 'visible') void refresh() }
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onFocus)
