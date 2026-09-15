@@ -1,4 +1,5 @@
 import type { BoardSnapshot, QuantityUnit } from './types'
+import { copyRemaining, lastCheckedAge } from './time'
 
 function unitLabel(unit: QuantityUnit, quantity: number): string {
   if (unit === 'KG') return 'kg'
@@ -6,35 +7,37 @@ function unitLabel(unit: QuantityUnit, quantity: number): string {
   return quantity === 1 ? base : `${base}s`
 }
 
-function remainingLabel(ms: number): string {
-  const safe = Math.max(0, ms)
-  const totalMinutes = Math.ceil(safe / 60000)
-  if (totalMinutes < 60) return `${totalMinutes} min left`
-  const hours = Math.floor(totalMinutes / 60)
-  const minutes = totalMinutes % 60
-  return minutes ? `${hours}h ${String(minutes).padStart(2, '0')}m left` : `${hours}h left`
+export function canonicalBoardUrl(currentOrigin?: string): string {
+  const configured = process.env.NEXT_PUBLIC_CANONICAL_APP_URL?.trim()
+  const origin = configured || currentOrigin || 'http://localhost:3000'
+  return new URL('/', origin).toString()
 }
 
-export function buildShareSummary(
-  snapshot: BoardSnapshot,
-  origin: string,
-  nowMs = Date.now(),
-  lastKnown = false,
-): string {
-  const live = snapshot.items.filter((item) => new Date(item.expires_at).getTime() > nowMs)
-  const lines = live.map((item, index) => {
+export function activeSummaryItems(snapshot: BoardSnapshot, nowMs: number) {
+  return snapshot.items.filter((item) => new Date(item.expires_at).getTime() > nowMs)
+}
+
+function formatLines(snapshot: BoardSnapshot, nowMs: number, suffix = ''): string[] {
+  return activeSummaryItems(snapshot, nowMs).map((item, index) => {
     const remainingMs = new Date(item.expires_at).getTime() - nowMs
     const urgent = remainingMs <= 15 * 60 * 1000 ? 'URGENT | ' : ''
     const quantity = Number(item.quantity_value)
-    return `${index + 1}. ${urgent}${item.item_type} | ${quantity} ${unitLabel(item.quantity_unit, quantity)} | Berth ${item.berth} | ${remainingLabel(remainingMs)}`
+    return `${index + 1}. ${urgent}${item.item_type} | ${quantity} ${unitLabel(item.quantity_unit, quantity)} | Berth ${item.berth} | ${copyRemaining(remainingMs)}${suffix}`
   })
+}
 
-  const heading = lastKnown
-    ? 'JETTYSHARE - LAST KNOWN SUPPLIES'
-    : 'JETTYSHARE - SUPPLIES AVAILABLE NOW'
-  const freshness = lastKnown
-    ? 'Connection is unavailable. This is last-known information - verify on the live board before pickup.'
-    : 'Availability changes quickly - check the live board before pickup.'
+export function buildShareSummary(snapshot: BoardSnapshot, origin: string, nowMs: number): string {
+  const lines = formatLines(snapshot, nowMs)
+  return `JETTYSHARE - SUPPLIES AVAILABLE NOW\n\n${lines.join('\n')}\n\nLive board: ${canonicalBoardUrl(origin)}\nAvailability changes quickly - check the live board before pickup.`
+}
 
-  return `${heading}\n\n${lines.length ? lines.join('\n') : 'No supplies currently available.'}\n\nLive board: ${origin.replace(/\/$/, '')}/\n${freshness}`
+export function buildLastKnownSummary(
+  snapshot: BoardSnapshot,
+  origin: string,
+  checkedAtMs: number,
+  nowMs: number,
+): string {
+  const snapshotNow = new Date(snapshot.server_now).getTime()
+  const lines = formatLines(snapshot, Number.isFinite(snapshotNow) ? snapshotNow : checkedAtMs, ' at last check')
+  return `LAST KNOWN - JETTYSHARE SUPPLIES\nLast checked ${lastCheckedAge(checkedAtMs, nowMs)}\n\n${lines.length ? lines.join('\n') : 'No supplies were available at the last successful check.'}\n\nLive board: ${canonicalBoardUrl(origin)}\nThis copy may be outdated - check the live board before pickup.`
 }
