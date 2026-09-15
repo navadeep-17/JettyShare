@@ -33,6 +33,7 @@ export type OwnedListingLocalV1 = {
 export type ClaimLocalV1 = {
   claimVersion: string
   claimToken: string
+  claimantLabel?: string
   state: 'pending-claim' | 'held'
   requestedLocallyAt: string
   claimExpiresAt?: string
