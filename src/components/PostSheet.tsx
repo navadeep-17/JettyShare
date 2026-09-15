@@ -12,7 +12,7 @@ type PendingAttempt = {
   payload: CreateListingInput
 }
 
-export function PostSheet({ crewLabel, onClose, onPosted }: { crewLabel: string; onClose: () => void; onPosted: () => Promise<void> | void }) {
+export function PostSheet({ crewLabel, onClose, onPosted }: { crewLabel: string; onClose: () => void; onPosted: () => Promise<unknown> | unknown }) {
   const [itemType, setItemType] = useState<ItemType>('ICE')
   const [quantity, setQuantity] = useState('')
   const [unit, setUnit] = useState<QuantityUnit>('KG')
