@@ -20,8 +20,5 @@ jobs:
       - run: npm run build
       - name: Public production smoke test
         run: |
-          curl --retry 3 --retry-all-errors --retry-delay 5 -fsSL -D /tmp/jettyshare-headers.txt https://jettyshare-navadeep-17s-projects.vercel.app -o /tmp/jettyshare.html
-          cat /tmp/jettyshare-headers.txt
-          head -c 1200 /tmp/jettyshare.html
-          echo
+          curl --retry 3 --retry-all-errors --retry-delay 5 -fsSL https://jettyshare-navadeep-17s-projects.vercel.app -o /tmp/jettyshare.html
           grep -qE "JettyShare|COASTAL JETTY BOARD" /tmp/jettyshare.html
