@@ -9,21 +9,25 @@ export function useLiveBoard() {
   const [snapshot, setSnapshot] = useState<BoardSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
   const [degraded, setDegraded] = useState(false)
+  const [lastSuccessAt, setLastSuccessAt] = useState<number | null>(null)
   const generation = useRef(0)
   const hasSnapshot = useRef(false)
   const debounceTimer = useRef<number | null>(null)
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (): Promise<BoardSnapshot | null> => {
     const mine = ++generation.current
     try {
       const next = await getBoardSnapshot()
-      if (mine !== generation.current) return
+      if (mine !== generation.current) return null
       setSnapshot(next)
+      setLastSuccessAt(Date.now())
       hasSnapshot.current = true
       setDegraded(false)
+      return next
     } catch {
-      if (mine !== generation.current) return
+      if (mine !== generation.current) return null
       if (hasSnapshot.current) setDegraded(true)
+      return null
     } finally {
       if (mine === generation.current) setLoading(false)
     }
@@ -72,5 +76,5 @@ export function useLiveBoard() {
     return () => clearTimeout(timer)
   }, [snapshot?.next_transition_at, refresh])
 
-  return { snapshot, loading, degraded, refresh }
+  return { snapshot, loading, degraded, lastSuccessAt, refresh }
 }
