@@ -20,6 +20,23 @@ async function rpc(name, args) {
 }
 
 async function main() {
+  const privateRead = await supabase.schema('private').from('listing_capabilities').select('listing_id').limit(1)
+  assert(Boolean(privateRead.error), 'private capability schema/table unexpectedly exposed through Data API')
+
+  const privateRpc = await supabase.schema('private').rpc('get_board_snapshot_impl', {})
+  assert(Boolean(privateRpc.error), 'private implementation RPC unexpectedly exposed through Data API')
+
+  const directInsert = await supabase.from('listings').insert({
+    id: randomUUID(),
+    item_type: 'ICE',
+    quantity_value: 1,
+    quantity_unit: 'KG',
+    berth: 'BAD',
+    poster_label: 'QA Direct Insert',
+    expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
+  })
+  assert(Boolean(directInsert.error), 'direct anonymous INSERT unexpectedly succeeded')
+
   const created = await rpc('create_listing', {
     p_listing_id: listingId,
     p_item_type: 'ICE',
@@ -78,6 +95,9 @@ async function main() {
   const directUpdate = await supabase.from('listings').update({ berth: 'BAD' }).eq('id', listingId)
   assert(Boolean(directUpdate.error), 'direct anonymous UPDATE unexpectedly succeeded')
 
+  const directDelete = await supabase.from('listings').delete().eq('id', listingId)
+  assert(Boolean(directDelete.error), 'direct anonymous DELETE unexpectedly succeeded')
+
   const collected = await rpc('confirm_collected', {
     p_listing_id: listingId,
     p_expected_claim_version: winner.attempt.version,
@@ -88,6 +108,11 @@ async function main() {
   const snapshot = await rpc('get_board_snapshot', {})
   if (snapshot.error) throw snapshot.error
   assert(!snapshot.data.items.some((item) => item.id === listingId), 'collected QA listing remained on active board')
+  for (const item of snapshot.data.items) {
+    for (const forbidden of ['claim_version', 'claimant_label', 'claim_token', 'owner_token', 'owner_token_hash', 'claim_token_hash']) {
+      assert(!(forbidden in item), `public snapshot leaked ${forbidden}`)
+    }
+  }
 
   console.log(JSON.stringify({
     result: 'PASS',
@@ -95,14 +120,17 @@ async function main() {
     berth,
     winner: winner.attempt.label,
     checks: [
+      'private capability table is not exposed through Data API',
+      'private implementation functions are not exposed through Data API',
+      'direct anonymous listings INSERT/UPDATE/DELETE are denied',
       '10 simultaneous first-time claims -> exactly one winner',
       '9 race losers -> CLAIM_UNAVAILABLE',
       'same claim version/token retry is idempotent',
       'retry does not extend claim hold',
       'wrong claim capability is rejected',
-      'direct anonymous listings UPDATE is denied',
       'provider confirms current generation collected',
       'collected QA row is absent from active board',
+      'public board snapshot contains no claim/capability fields',
     ],
   }, null, 2))
 }
