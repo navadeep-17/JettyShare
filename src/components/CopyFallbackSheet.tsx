@@ -1,8 +1,10 @@
 'use client'
 
 import { useRef } from 'react'
+import { useModalFocus } from '@/hooks/useModalFocus'
 
 export function CopyFallbackSheet({ text, lastKnown, onClose }: { text: string; lastKnown: boolean; onClose: () => void }) {
+  const dialogRef = useModalFocus(onClose)
   const ref = useRef<HTMLTextAreaElement | null>(null)
 
   function selectAll() {
@@ -11,7 +13,7 @@ export function CopyFallbackSheet({ text, lastKnown, onClose }: { text: string; 
   }
 
   return <div className="overlay" role="presentation">
-    <div className="sheet" role="dialog" aria-modal="true" aria-labelledby="copy-fallback-title">
+    <div ref={dialogRef} className="sheet" role="dialog" aria-modal="true" aria-labelledby="copy-fallback-title">
       <button className="sheet-close" onClick={onClose} aria-label="Close">×</button>
       <p className="eyebrow">MANUAL COPY</p>
       <h2 id="copy-fallback-title">{lastKnown ? 'Last-known supply summary' : 'Copy supply summary'}</h2>
