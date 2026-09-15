@@ -218,7 +218,7 @@ export function JettyShareApp() {
 
     <button className="floating-post" onClick={()=>requireIdentity({ type: 'post' })}>+ POST SUPPLY</button>
 
-    {identityAction && <IdentitySheet onClose={()=>setIdentityAction(null)} onSaved={identitySaved} />}
+    {identityAction && <IdentitySheet submitLabel={identityAction.type === 'claim' ? 'Save & Claim' : 'Save & Post'} onClose={()=>setIdentityAction(null)} onSaved={identitySaved} />}
     {postLabel && <PostSheet crewLabel={postLabel} onClose={()=>setPostLabel(null)} onPosted={refresh} />}
     {receipt && <ClaimReceiptSheet receipt={receipt.receipt} item={receipt.item} onClose={()=>setReceipt(null)} onRelease={releaseReceiptClaim} />}
     {activityOpen && <MyActivitySheet onClose={()=>setActivityOpen(false)} onChanged={refresh} />}
