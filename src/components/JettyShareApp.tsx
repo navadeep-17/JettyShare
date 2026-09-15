@@ -3,13 +3,14 @@
 import { useMemo, useState } from 'react'
 import { claimListing, JettyError } from '@/lib/api'
 import { newClaimVersion, randomCapability } from '@/lib/capabilities'
-import { getClaims, getOwnedListings, getProfile, removeClaim, setClaim, storageAvailable } from '@/lib/storage'
+import { getOwnedListings, getProfile, removeClaim, setClaim, storageAvailable } from '@/lib/storage'
 import type { ActiveBoardItem, ClaimReceipt } from '@/lib/types'
 import { useLiveBoard } from '@/hooks/useLiveBoard'
 import { IdentitySheet } from './IdentitySheet'
 import { PostSheet } from './PostSheet'
 import { SupplyCard } from './SupplyCard'
 import { ClaimReceiptSheet } from './ClaimReceiptSheet'
+import { MyActivitySheet } from './MyActivitySheet'
 import { formatRemaining } from './Countdown'
 
 type Filter = 'ALL' | 'ICE' | 'BAIT'
@@ -22,6 +23,7 @@ export function JettyShareApp() {
   const [postLabel, setPostLabel] = useState<string | null>(null)
   const [claimingId, setClaimingId] = useState<string | null>(null)
   const [receipt, setReceipt] = useState<{ receipt: ClaimReceipt; item: ActiveBoardItem } | null>(null)
+  const [activityOpen, setActivityOpen] = useState(false)
   const [notice, setNotice] = useState('')
 
   const items = useMemo(() => (snapshot?.items ?? []).filter(x => filter === 'ALL' || x.item_type === filter), [snapshot, filter])
@@ -36,28 +38,46 @@ export function JettyShareApp() {
   }
 
   function identitySaved(label: string) {
-    const action = identityAction; setIdentityAction(null)
+    const action = identityAction
+    setIdentityAction(null)
     if (!action) return
     if (action.type === 'post') setPostLabel(label)
     else void performClaim(action.item, label)
   }
 
   async function performClaim(item: ActiveBoardItem, crewLabel: string) {
-    if (!storageAvailable()) return setNotice('Site storage is required to safely hold a claim. Use a normal browser mode with storage enabled.')
-    const claimVersion = newClaimVersion(); const claimToken = randomCapability()
+    if (!storageAvailable()) {
+      setNotice('Site storage is required to safely hold a claim. Use a normal browser mode with storage enabled.')
+      return
+    }
+    const claimVersion = newClaimVersion()
+    const claimToken = randomCapability()
     setClaim(item.id, { claimVersion, claimToken, state: 'pending-claim', requestedLocallyAt: new Date().toISOString() })
-    setClaimingId(item.id); setNotice('')
+    setClaimingId(item.id)
+    setNotice('')
     try {
       const result = await claimListing(item.id, crewLabel, claimVersion, claimToken)
-      setClaim(item.id, { claimVersion, claimToken, state: 'held', requestedLocallyAt: new Date().toISOString(), claimExpiresAt: result.claim_expires_at, itemExpiresAt: result.expires_at })
-      setReceipt({ receipt: result, item }); await refresh()
+      setClaim(item.id, {
+        claimVersion,
+        claimToken,
+        state: 'held',
+        requestedLocallyAt: new Date().toISOString(),
+        claimExpiresAt: result.claim_expires_at,
+        itemExpiresAt: result.expires_at,
+      })
+      setReceipt({ receipt: result, item })
+      await refresh()
     } catch (error) {
       if (error instanceof JettyError && ['CLAIM_UNAVAILABLE','ITEM_EXPIRED','NOT_FOUND'].includes(error.code)) {
-        removeClaim(item.id); setNotice(error.code === 'ITEM_EXPIRED' ? 'This supply just expired.' : 'Someone else just claimed this supply.'); await refresh()
+        removeClaim(item.id)
+        setNotice(error.code === 'ITEM_EXPIRED' ? 'This supply just expired.' : 'Someone else just claimed this supply.')
+        await refresh()
       } else {
-        setNotice('Claim status is uncertain because the connection was interrupted. The attempt has been kept safely for retry/recovery.')
+        setNotice('Claim status is uncertain because the connection was interrupted. The attempt has been kept safely for recovery in My Activity.')
       }
-    } finally { setClaimingId(null) }
+    } finally {
+      setClaimingId(null)
+    }
   }
 
   async function copySummary() {
@@ -69,11 +89,19 @@ export function JettyShareApp() {
       return `${i + 1}. ${urgent}${x.item_type} | ${Number(x.quantity_value)} ${unit} | Berth ${x.berth} | ${formatRemaining(new Date(x.expires_at).getTime() - Date.now())}`
     })
     const text = `JETTYSHARE - SUPPLIES AVAILABLE NOW\n\n${lines.length ? lines.join('\n') : 'No supplies currently available.'}\n\nLive board: ${location.origin}/\nAvailability changes quickly - check the live board before pickup.`
-    try { await navigator.clipboard.writeText(text); setNotice('Available supplies copied.') } catch { setNotice('Clipboard access failed. Please use your browser copy controls.') }
+    try {
+      await navigator.clipboard.writeText(text)
+      setNotice('Available supplies copied.')
+    } catch {
+      setNotice('Clipboard access failed. Please use your browser copy controls.')
+    }
   }
 
   return <main className="app-shell">
-    <header className="topbar"><div><p className="eyebrow">COASTAL JETTY BOARD</p><h1>JettyShare</h1><p className="subtitle">Fresh surplus. Fast pickup. Less waste.</p></div><button className="button button-primary compact" onClick={()=>requireIdentity({type:'post'})}>+ Post</button></header>
+    <header className="topbar">
+      <div><p className="eyebrow">COASTAL JETTY BOARD</p><h1>JettyShare</h1><p className="subtitle">Fresh surplus. Fast pickup. Less waste.</p></div>
+      <div className="top-actions"><button className="button compact" onClick={()=>setActivityOpen(true)}>Activity</button><button className="button button-primary compact" onClick={()=>requireIdentity({type:'post'})}>+ Post</button></div>
+    </header>
     {degraded && <div className="banner warning">Live updates paused — retrying.</div>}
     {notice && <div className="banner" role="status">{notice}<button onClick={()=>setNotice('')} aria-label="Dismiss">×</button></div>}
     <section className="board-tools"><div className="filters" role="group" aria-label="Filter supplies">{(['ALL','ICE','BAIT'] as Filter[]).map(x=><button key={x} className={filter===x?'selected':''} onClick={()=>setFilter(x)}>{x==='ALL'?'All':x==='ICE'?'Ice':'Bait'}</button>)}</div><button className="copy-button" onClick={copySummary}>Copy all available</button></section>
@@ -83,5 +111,6 @@ export function JettyShareApp() {
     {identityAction && <IdentitySheet onClose={()=>setIdentityAction(null)} onSaved={identitySaved} />}
     {postLabel && <PostSheet crewLabel={postLabel} onClose={()=>setPostLabel(null)} onPosted={refresh} />}
     {receipt && <ClaimReceiptSheet receipt={receipt.receipt} item={receipt.item} onClose={()=>setReceipt(null)} />}
+    {activityOpen && <MyActivitySheet onClose={()=>setActivityOpen(false)} onChanged={refresh} />}
   </main>
 }
