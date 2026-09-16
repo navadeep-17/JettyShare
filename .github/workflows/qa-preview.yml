@@ -1,0 +1,69 @@
+name: QA Preview
+
+on:
+  push:
+    branches:
+      - hardening-spec-parity
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preview-environment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Wait for branch Preview and verify DEV isolation
+        shell: bash
+        env:
+          PREVIEW_URL: https://jettyshare-git-hardening-spec-parity-navadeep-17s-projects.vercel.app/diagnostics
+          EXPECTED_DEV_HOST: ysexholoqrxyuqhmrkuq.supabase.co
+          PROD_HOST: bxqumvatvqhvqdngrklk.supabase.co
+        run: |
+          set -euo pipefail
+          body="$(mktemp)"
+          trap 'rm -f "$body"' EXIT
+
+          ready=0
+          for attempt in $(seq 1 36); do
+            status=$(curl -sS -L --connect-timeout 10 --max-time 20 -o "$body" -w '%{http_code}' "$PREVIEW_URL" || true)
+            echo "Attempt $attempt: HTTP $status"
+
+            if [ "$status" = "200" ]; then
+              ready=1
+              break
+            fi
+
+            # 401/403 is an actionable deployment-protection failure rather than a build wait.
+            if [ "$status" = "401" ] || [ "$status" = "403" ]; then
+              echo "Preview is protected from public QA (HTTP $status)."
+              exit 1
+            fi
+
+            sleep 10
+          done
+
+          if [ "$ready" -ne 1 ]; then
+            echo "Preview did not become publicly reachable within the wait window."
+            exit 1
+          fi
+
+          grep -Fq 'JettyShare environment' "$body"
+          grep -Fq 'preview' "$body"
+          grep -Fq "$EXPECTED_DEV_HOST" "$body"
+
+          if grep -Fq "$PROD_HOST" "$body"; then
+            echo "FAIL: Preview diagnostics references PROD Supabase."
+            exit 1
+          fi
+
+          if grep -Fq 'sb_publishable_' "$body"; then
+            echo "FAIL: Diagnostics exposed publishable-key contents."
+            exit 1
+          fi
+
+          echo "PASS: Vercel Preview is reachable, reports preview runtime, and points to JettyShare-DEV only."
