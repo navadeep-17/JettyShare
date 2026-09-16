@@ -253,7 +253,9 @@ test.describe('Component 06 lifecycle and management release gates', () => {
     await mockEmptyBoard(page)
 
     let ended = false
+    let reads = 0
     await page.route('**/rest/v1/rpc/get_owned_listing', async (route) => {
+      reads += 1
       const data = ended
         ? managedPost({ effective_status: 'ACTIVE', claim_version: null, claimant_label: null, claim_expires_at: null })
         : managedPost()
@@ -265,10 +267,11 @@ test.describe('Component 06 lifecycle and management release gates', () => {
     const card = page.locator('.managed-card', { hasText: 'BERTH LIFE-1' })
     await expect(card.getByRole('button', { name: 'Confirm collected', exact: true })).toBeEnabled()
 
+    const readsBeforeFocus = reads
     ended = true
     await page.evaluate(() => window.dispatchEvent(new Event('focus')))
-    await expect(page.getByText('Checking latest status…', { exact: true })).toBeVisible()
     await expect(card.getByText('ACTIVE', { exact: true })).toBeVisible()
+    await expect.poll(() => reads).toBeGreaterThan(readsBeforeFocus)
     await expect(card.getByRole('button', { name: 'Confirm collected', exact: true })).toHaveCount(0)
     await expect(card.getByRole('button', { name: 'Release claim', exact: true })).toHaveCount(0)
     await context.close()
