@@ -3,7 +3,17 @@
 import { useRef } from 'react'
 import { useModalFocus } from '@/hooks/useModalFocus'
 
-export function CopyFallbackSheet({ text, lastKnown, onClose }: { text: string; lastKnown: boolean; onClose: () => void }) {
+export function CopyFallbackSheet({
+  text,
+  lastKnown,
+  onRetryRefresh,
+  onClose,
+}: {
+  text: string
+  lastKnown: boolean
+  onRetryRefresh?: () => void
+  onClose: () => void
+}) {
   const dialogRef = useModalFocus(onClose)
   const ref = useRef<HTMLTextAreaElement | null>(null)
 
@@ -25,8 +35,11 @@ export function CopyFallbackSheet({ text, lastKnown, onClose }: { text: string; 
       <textarea ref={ref} className="copy-fallback-text" readOnly value={text} onFocus={(event)=>event.currentTarget.select()} aria-label="Supply summary text" />
       <div className="action-grid">
         <button className="button button-primary" onClick={selectAll}>Select all</button>
-        <button className="button" onClick={onClose}>Close</button>
+        {lastKnown && onRetryRefresh
+          ? <button className="button" onClick={onRetryRefresh}>Retry refresh</button>
+          : <button className="button" onClick={onClose}>Close</button>}
       </div>
+      {lastKnown && onRetryRefresh && <button className="button copy-fallback-close" onClick={onClose}>Close</button>}
     </div>
   </div>
 }
