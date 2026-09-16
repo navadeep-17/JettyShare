@@ -5,6 +5,7 @@ import { claimListing, getClaimReceipt, JettyError } from '@/lib/api'
 import { newClaimVersion, randomCapability } from '@/lib/capabilities'
 import { getClaims, getOwnedListings, getProfile, removeClaim, setClaim, storageAvailable } from '@/lib/storage'
 import { buildLastKnownSummary, canonicalBoardUrl, formatActiveSupplySummary } from '@/lib/summary'
+import { boardCountdown, lastCheckedAge } from '@/lib/time'
 import type { ActiveBoardItem, ClaimReceipt } from '@/lib/types'
 import { useLiveBoard } from '@/hooks/useLiveBoard'
 import { IdentitySheet } from './IdentitySheet'
@@ -13,6 +14,7 @@ import { SupplyCard } from './SupplyCard'
 import { ClaimReceiptSheet } from './ClaimReceiptSheet'
 import { MyActivitySheet } from './MyActivitySheet'
 import { CopyFallbackSheet } from './CopyFallbackSheet'
+import { HowItWorksSheet } from './HowItWorksSheet'
 
 type Filter = 'ALL' | 'ICE' | 'BAIT'
 type PendingAction = { type: 'post' } | { type: 'claim'; item: ActiveBoardItem }
@@ -35,6 +37,7 @@ export function JettyShareApp() {
   const [claimingId, setClaimingId] = useState<string | null>(null)
   const [receipt, setReceipt] = useState<ClaimReceipt | null>(null)
   const [activityOpen, setActivityOpen] = useState(false)
+  const [howItWorksOpen, setHowItWorksOpen] = useState(false)
   const [copyFallback, setCopyFallback] = useState<{ text: string; lastKnown: boolean } | null>(null)
   const [lastKnownOffer, setLastKnownOffer] = useState<string | null>(null)
   const [copyBusy, setCopyBusy] = useState(false)
@@ -51,6 +54,10 @@ export function JettyShareApp() {
     [liveItems, filter],
   )
   const ownedIds = typeof window === 'undefined' ? new Set<string>() : new Set(Object.keys(getOwnedListings()))
+  const nextDeadline = liveItems.length ? boardCountdown(liveItems[0].expires_at, clockNowMs) : null
+  const freshness = lastSuccessAt ? lastCheckedAge(lastSuccessAt, Date.now()) : 'checking now'
+  const connectionState = !online ? 'offline' : degraded ? 'delayed' : 'live'
+  const connectionLabel = connectionState === 'offline' ? 'OFFLINE' : connectionState === 'delayed' ? 'UPDATES DELAYED' : 'LIVE'
 
   useEffect(() => {
     const onlineHandler = () => setOnline(true)
@@ -320,18 +327,24 @@ export function JettyShareApp() {
 
   function emptyState() {
     if (liveItems.length === 0) {
-      return <div className="empty"><strong>No supplies available right now.</strong><span>Returning crews can post surplus ice or bait in seconds.</span><button className="button button-primary" onClick={()=>requireIdentity({ type: 'post' })}>Post supply</button></div>
+      return <div className="empty"><span className="empty-mark" aria-hidden="true">≈</span><strong>No supplies available right now.</strong><span>Returning crews can post surplus ice or bait in seconds.</span><button className="button button-primary" onClick={()=>requireIdentity({ type: 'post' })}>Post supply</button></div>
     }
     const label = filter === 'ICE' ? 'ice' : 'bait'
-    return <div className="empty"><strong>No {label} available right now.</strong><span>Other fresh supplies may still be available.</span><div className="empty-actions"><button className="button" onClick={()=>setFilter('ALL')}>Show all</button><button className="button button-primary" onClick={()=>requireIdentity({ type: 'post' })}>Post supply</button></div></div>
+    return <div className="empty"><span className="empty-mark" aria-hidden="true">≈</span><strong>No {label} available right now.</strong><span>Other fresh supplies may still be available.</span><div className="empty-actions"><button className="button" onClick={()=>setFilter('ALL')}>Show all</button><button className="button button-primary" onClick={()=>requireIdentity({ type: 'post' })}>Post supply</button></div></div>
   }
 
   return <main className="app-shell">
     <header className="topbar">
-      <div>
-        <p className="eyebrow">COASTAL JETTY BOARD</p>
-        <h1>JettyShare</h1>
-        <p className="subtitle">Fresh surplus. Fast pickup. Less waste.</p>
+      <div className="brand-lockup">
+        <svg className="brand-mark" viewBox="0 0 44 44" aria-hidden="true">
+          <path d="M7 12h30M22 8v24M12 23h20M9 31c4-3 8-3 12 0s8 3 14 0" />
+          <path d="m15 18 7 5 7-5" />
+        </svg>
+        <div>
+          <p className="eyebrow">COASTAL JETTY BOARD</p>
+          <h1>JettyShare</h1>
+          <p className="subtitle">Fresh surplus. Fast pickup. Less waste.</p>
+        </div>
       </div>
       <div className="top-actions">
         <button className="button compact" onClick={()=>setActivityOpen(true)}>Activity</button>
@@ -349,6 +362,17 @@ export function JettyShareApp() {
         <button className="inline-action" disabled={copyBusy} onClick={()=>{setCopyFallback({ text: lastKnownOffer, lastKnown: true }); setLastKnownOffer(null)}}>View last-known text</button>
       </div>
     </div>}
+
+    {snapshot && <section className="board-summary" aria-label="Live board summary">
+      <div className="board-summary-primary">
+        <strong>{liveItems.length} {liveItems.length === 1 ? 'supply' : 'supplies'} available</strong>
+        <span>{nextDeadline && !nextDeadline.expired ? `Next deadline: ${nextDeadline.text}` : 'No active spoil deadline'}</span>
+      </div>
+      <div className="board-summary-side">
+        <span className={`board-live-pill board-live-${connectionState}`}>{connectionLabel} · {freshness}</span>
+        <button className="how-link" onClick={()=>setHowItWorksOpen(true)}>How it works</button>
+      </div>
+    </section>}
 
     <section className="board-tools">
       <div className="filters" role="group" aria-label="Filter supplies">
@@ -382,6 +406,7 @@ export function JettyShareApp() {
     {postLabel && <PostSheet crewLabel={postLabel} onClose={()=>setPostLabel(null)} onPosted={refresh} />}
     {receipt && <ClaimReceiptSheet receipt={receipt} onClose={()=>setReceipt(null)} onHoldEnded={async()=>{await refresh(); setReceipt(null); setNotice('Reservation hold ended. The latest board state has been checked.')}} />}
     {activityOpen && <MyActivitySheet onClose={()=>setActivityOpen(false)} onChanged={refresh} />}
+    {howItWorksOpen && <HowItWorksSheet onClose={()=>setHowItWorksOpen(false)} />}
     {copyFallback && <CopyFallbackSheet
       text={copyFallback.text}
       lastKnown={copyFallback.lastKnown}
