@@ -1,0 +1,36 @@
+name: Apply pickup verification patch
+
+on:
+  push:
+    branches:
+      - feature-pickup-verification
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature-pickup-verification
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply focused UI patch
+        run: python scripts/apply_pickup_verification_patch.py
+      - name: Commit patched component when needed
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo 'No patch changes needed.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/components/MyActivitySheet.tsx
+          git commit -m 'feat: add provider pickup verification controls'
+          git push origin HEAD:feature-pickup-verification
