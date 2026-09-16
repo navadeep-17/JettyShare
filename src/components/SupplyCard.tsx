@@ -1,6 +1,7 @@
 'use client'
 
 import { Countdown } from './Countdown'
+import { boardCountdown } from '@/lib/time'
 import type { ActiveBoardItem } from '@/lib/types'
 
 function quantity(item: ActiveBoardItem) {
@@ -23,7 +24,10 @@ export function SupplyCard({
   nowMs: number
   onClaim: () => void
 }) {
-  return <article className="supply-card" aria-label={`${item.item_type} ${quantity(item)} at berth ${item.berth}`}>
+  const countdown = boardCountdown(item.expires_at, nowMs)
+  const remaining = countdown.expired ? 'expired' : `${countdown.band.toLowerCase()}, ${countdown.text}`
+
+  return <article className="supply-card" aria-label={`${item.item_type} ${quantity(item)} at berth ${item.berth}, ${remaining}`}>
     <div className="card-top"><Countdown expiresAt={item.expires_at} nowMs={nowMs} />{own && <span className="status status-info">YOUR POST</span>}</div>
     <div className="item-line"><span className="item-icon" aria-hidden>{item.item_type === 'ICE' ? '◆' : '●'}</span><h3>{item.item_type === 'ICE' ? 'ICE' : 'LIVE BAIT'}</h3></div>
     <p className="quantity">{quantity(item)}</p>
