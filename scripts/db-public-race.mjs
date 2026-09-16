@@ -6,6 +6,7 @@ const key = process.env.JETTYSHARE_SUPABASE_PUBLISHABLE_KEY
 if (!url || !key) throw new Error('JETTYSHARE_SUPABASE_URL and JETTYSHARE_SUPABASE_PUBLISHABLE_KEY are required')
 
 const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } })
+const api = supabase.schema('api')
 const token = () => randomBytes(32).toString('base64url')
 const listingId = randomUUID()
 const ownerToken = token()
@@ -16,7 +17,7 @@ function assert(condition, message) {
 }
 
 async function rpc(name, args) {
-  return supabase.rpc(name, args)
+  return api.rpc(name, args)
 }
 
 async function main() {
@@ -25,6 +26,9 @@ async function main() {
 
   const privateRpc = await supabase.schema('private').rpc('get_board_snapshot_impl', {})
   assert(Boolean(privateRpc.error), 'private implementation RPC unexpectedly exposed through Data API')
+
+  const publicRpc = await supabase.schema('public').rpc('get_board_snapshot', {})
+  assert(Boolean(publicRpc.error), 'retired public RPC surface unexpectedly remained exposed')
 
   const directInsert = await supabase.from('listings').insert({
     id: randomUUID(),
@@ -122,6 +126,7 @@ async function main() {
     checks: [
       'private capability table is not exposed through Data API',
       'private implementation functions are not exposed through Data API',
+      'retired public RPC surface is not exposed',
       'direct anonymous listings INSERT/UPDATE/DELETE are denied',
       '10 simultaneous first-time claims -> exactly one winner',
       '9 race losers -> CLAIM_UNAVAILABLE',
@@ -130,7 +135,7 @@ async function main() {
       'wrong claim capability is rejected',
       'provider confirms current generation collected',
       'collected QA row is absent from active board',
-      'public board snapshot contains no claim/capability fields',
+      'board snapshot contains no claim/capability fields',
     ],
   }, null, 2))
 }
