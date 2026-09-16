@@ -4,6 +4,15 @@ function suffix() {
   return Date.now().toString().slice(-6)
 }
 
+function cssDurationMs(value: string) {
+  return value.split(',').reduce((max, part) => {
+    const token = part.trim()
+    const parsed = parseFloat(token)
+    const milliseconds = token.endsWith('ms') ? parsed : parsed * 1000
+    return Math.max(max, Number.isFinite(milliseconds) ? milliseconds : 0)
+  }, 0)
+}
+
 async function saveIdentityIfVisible(page: Page, label: string, action: 'Save & Post' | 'Save & Claim') {
   const heading = page.getByRole('heading', { name: 'What should crews call your boat?' })
   if (await heading.isVisible().catch(() => false)) {
@@ -102,8 +111,9 @@ test.describe('Component 08 mobile design and accessibility gates', () => {
       const styles = getComputedStyle(element)
       return { transition: styles.transitionDuration, animation: styles.animationDuration }
     })
-    expect(['0s', '0.001s']).toContain(transition.transition)
-    expect(['0s', '0.001s']).toContain(transition.animation)
+    // Browsers may serialize the near-zero reduced-motion duration as 1e-06s.
+    expect(cssDurationMs(transition.transition)).toBeLessThanOrEqual(1)
+    expect(cssDurationMs(transition.animation)).toBeLessThanOrEqual(1)
     await context.close()
   })
 
