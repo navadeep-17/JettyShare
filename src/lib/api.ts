@@ -10,6 +10,17 @@ export class JettyError extends Error {
   constructor(public code: JettyErrorCode, message?: string) { super(message ?? code) }
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const CAPABILITY_RE = /^[A-Za-z0-9_-]{43}$/
+
+function requireClaimSecret(listingId: string, claimVersion: string, claimToken: string): void {
+  if (!UUID_RE.test(listingId) || !UUID_RE.test(claimVersion) || !CAPABILITY_RE.test(claimToken)) {
+    // A malformed locally persisted claim must never be sent to Supabase. Treat it
+    // as an unusable device capability so callers can clear it safely.
+    throw new JettyError('CAPABILITY_INVALID', 'Saved claim capability is malformed')
+  }
+}
+
 function mapRpcError(error: { message?: string } | null): never {
   const message = error?.message ?? ''
   const codes: JettyErrorCode[] = ['INVALID_INPUT','NOT_FOUND','ITEM_EXPIRED','CLAIM_UNAVAILABLE','CLAIM_HOLD_EXPIRED','STALE_CLAIM_VERSION','CAPABILITY_INVALID','ALREADY_COLLECTED','CONFLICT']
@@ -39,6 +50,7 @@ export async function createListing(input: CreateListingInput, listingId: string
 }
 
 export async function claimListing(listingId: string, claimantLabel: string, claimVersion: string, claimToken: string): Promise<ClaimReceipt> {
+  requireClaimSecret(listingId, claimVersion, claimToken)
   const { data, error } = await supabase.rpc('claim_listing', {
     p_listing_id: listingId,
     p_claimant_label: claimantLabel,
@@ -50,6 +62,7 @@ export async function claimListing(listingId: string, claimantLabel: string, cla
 }
 
 export async function releaseClaim(listingId: string, claimVersion: string, claimToken: string) {
+  requireClaimSecret(listingId, claimVersion, claimToken)
   const { data, error } = await supabase.rpc('release_claim', { p_listing_id: listingId, p_claim_version: claimVersion, p_claim_token: claimToken })
   if (error) mapRpcError(error)
   return data
@@ -74,6 +87,7 @@ export async function getOwnedListing(listingId: string, ownerToken: string) {
 }
 
 export async function getClaimReceipt(listingId: string, claimVersion: string, claimToken: string): Promise<ManagedClaimReceipt> {
+  requireClaimSecret(listingId, claimVersion, claimToken)
   const { data, error } = await supabase.rpc('get_claim_receipt', { p_listing_id: listingId, p_claim_version: claimVersion, p_claim_token: claimToken })
   if (error) mapRpcError(error)
   return data as ManagedClaimReceipt
