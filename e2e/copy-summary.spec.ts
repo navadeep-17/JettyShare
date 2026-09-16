@@ -202,7 +202,7 @@ test.describe('Component 07 copy-summary release gates', () => {
     reads.reset()
 
     await page.getByRole('button', { name: 'Copy all available supplies', exact: true }).click()
-    await expect(page.getByText('1 available supply copied.', { exact: true })).toBeVisible()
+    await expect(page.getByRole('status')).toContainText('1 available supply copied.')
     expect(reads.calls()).toBe(0)
     await context.close()
   })
@@ -222,7 +222,7 @@ test.describe('Component 07 copy-summary release gates', () => {
     })
 
     await page.getByRole('button', { name: 'Copy all available supplies', exact: true }).click()
-    await expect(page.getByText('1 available supply copied.', { exact: true })).toBeVisible()
+    await expect(page.getByRole('status')).toContainText('1 available supply copied.')
     expect(reads.calls()).toBe(1)
     await context.close()
   })
