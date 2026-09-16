@@ -185,7 +185,7 @@ export function PostSheet({ crewLabel, onClose, onPosted }: { crewLabel: string;
               aria-describedby={fieldErrors.quantity ? 'quantity-error' : undefined}
               placeholder="20"
             />
-            {fieldErrors.quantity && <span id="quantity-error" className="field-error" role="alert">ERROR · {fieldErrors.quantity}</span>}
+            {fieldErrors.quantity && <span id="quantity-error" className="error-text" role="alert">ERROR · {fieldErrors.quantity}</span>}
           </label>
           <label>Unit
             <select disabled={locked || busy} value={unit} onChange={e=>setUnit(e.target.value as QuantityUnit)}>{units.map(x=><option key={x}>{x}</option>)}</select>
@@ -202,7 +202,7 @@ export function PostSheet({ crewLabel, onClose, onPosted }: { crewLabel: string;
             aria-describedby={fieldErrors.berth ? 'berth-error' : undefined}
             placeholder="J-08"
           />
-          {fieldErrors.berth && <span id="berth-error" className="field-error" role="alert">ERROR · {fieldErrors.berth}</span>}
+          {fieldErrors.berth && <span id="berth-error" className="error-text" role="alert">ERROR · {fieldErrors.berth}</span>}
         </label>
 
         <fieldset disabled={locked || busy} aria-describedby={fieldErrors.spoil ? 'spoil-error' : undefined}>
@@ -211,7 +211,7 @@ export function PostSheet({ crewLabel, onClose, onPosted }: { crewLabel: string;
             {[15, 30, 60, 120].map((m, index)=><button ref={index === 0 ? spoilRef : undefined} type="button" key={m} aria-pressed={spoil === m} className={spoil === m ? 'selected' : ''} onClick={()=>{setSpoil(m);clearFieldError('spoil');clearFieldError('custom')}}>{m < 60 ? `${m}m` : `${m / 60}h`}</button>)}
             <button type="button" aria-pressed={spoil === 0} className={spoil === 0 ? 'selected' : ''} onClick={()=>{setSpoil(0);clearFieldError('spoil')}}>Custom</button>
           </div>
-          {fieldErrors.spoil && <span id="spoil-error" className="field-error" role="alert">ERROR · {fieldErrors.spoil}</span>}
+          {fieldErrors.spoil && <span id="spoil-error" className="error-text" role="alert">ERROR · {fieldErrors.spoil}</span>}
         </fieldset>
 
         {spoil === 0 && <label>Custom minutes
@@ -225,7 +225,7 @@ export function PostSheet({ crewLabel, onClose, onPosted }: { crewLabel: string;
             aria-describedby={fieldErrors.custom ? 'custom-error' : undefined}
             placeholder="45"
           />
-          {fieldErrors.custom && <span id="custom-error" className="field-error" role="alert">ERROR · {fieldErrors.custom}</span>}
+          {fieldErrors.custom && <span id="custom-error" className="error-text" role="alert">ERROR · {fieldErrors.custom}</span>}
         </label>}
 
         {attempt && <div className="banner warning">Pending post is locked to its original details so retry cannot create a duplicate.</div>}
