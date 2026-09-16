@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { claimListing, getClaimReceipt, JettyError } from '@/lib/api'
 import { newClaimVersion, randomCapability } from '@/lib/capabilities'
 import { getClaims, getOwnedListings, getProfile, removeClaim, setClaim, storageAvailable } from '@/lib/storage'
-import { activeSummaryItems, buildLastKnownSummary, canonicalBoardUrl, formatActiveSupplySummary } from '@/lib/summary'
+import { buildLastKnownSummary, canonicalBoardUrl, formatActiveSupplySummary } from '@/lib/summary'
 import type { ActiveBoardItem, ClaimReceipt } from '@/lib/types'
 import { useLiveBoard } from '@/hooks/useLiveBoard'
 import { IdentitySheet } from './IdentitySheet'
@@ -169,9 +169,6 @@ export function JettyShareApp() {
           state: 'pending-claim',
           requestedLocallyAt: new Date().toISOString(),
         })
-        // Web Locks is not universal. A short localStorage stabilization window makes
-        // simultaneous same-origin tabs converge on one persisted pending generation
-        // before either sends a network mutation.
         await sleep(60)
       }
 
@@ -257,9 +254,6 @@ export function JettyShareApp() {
   }
 
   async function copySummary() {
-    // State alone cannot close the same-tick double-tap window because two click
-    // handlers may run before React commits the disabled state. This ref is the
-    // synchronous attempt lock; state remains the visible pending indicator.
     if (copyBusyRef.current) return
     copyBusyRef.current = true
     setCopyBusy(true)
