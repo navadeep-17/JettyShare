@@ -96,17 +96,29 @@ test.describe('JettyShare recovery and slow-network release gates', () => {
     const viewerContext = await browser.newContext({ viewport: { width: 390, height: 844 } })
     const provider = await providerContext.newPage()
     const viewer = await viewerContext.newPage()
+    let snapshotReads = 0
 
     await blockRealtime(viewer)
+    viewer.on('request', (request) => {
+      if (request.url().includes('/rest/v1/rpc/get_board_snapshot')) snapshotReads += 1
+    })
+
     await provider.goto('/')
     await viewer.goto('/')
     await expect(viewer.getByRole('heading', { name: 'JettyShare' })).toBeVisible()
+    await expect.poll(() => snapshotReads).toBeGreaterThanOrEqual(1)
+    const readsBeforePost = snapshotReads
 
     await postSupply(provider, `QA Realtime ${id}`, berth)
-    await expect(viewer.locator('.supply-card', { hasText: `BERTH ${berth}` })).toHaveCount(0)
+    // Do not query/activate the viewer page before this assertion: Playwright
+    // page activation itself can produce a real focus event. With Realtime
+    // blocked, the provider mutation alone must not trigger a viewer snapshot.
+    await provider.waitForTimeout(750)
+    expect(snapshotReads).toBe(readsBeforePost)
 
     // Focus recovery is one of the frozen fallback paths when a broadcast is missed.
     await viewer.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await expect.poll(() => snapshotReads).toBeGreaterThan(readsBeforePost)
     await expect(viewer.locator('.supply-card', { hasText: `BERTH ${berth}` })).toBeVisible({ timeout: 12_000 })
 
     await providerContext.close()
