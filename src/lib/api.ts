@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import type { BoardSnapshot, ClaimReceipt, CreateListingInput } from './types'
+import type { BoardSnapshot, ClaimReceipt, CreateListingInput, ManagedClaimReceipt } from './types'
 
 export type JettyErrorCode =
   | 'INVALID_INPUT' | 'NOT_FOUND' | 'ITEM_EXPIRED' | 'CLAIM_UNAVAILABLE'
@@ -73,8 +73,8 @@ export async function getOwnedListing(listingId: string, ownerToken: string) {
   return data
 }
 
-export async function getClaimReceipt(listingId: string, claimVersion: string, claimToken: string) {
+export async function getClaimReceipt(listingId: string, claimVersion: string, claimToken: string): Promise<ManagedClaimReceipt> {
   const { data, error } = await supabase.rpc('get_claim_receipt', { p_listing_id: listingId, p_claim_version: claimVersion, p_claim_token: claimToken })
   if (error) mapRpcError(error)
-  return data
+  return data as ManagedClaimReceipt
 }
