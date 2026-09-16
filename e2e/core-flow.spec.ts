@@ -8,7 +8,7 @@ async function saveIdentityIfNeeded(page: Page, label: string, submitText: 'Save
   const heading = page.getByRole('heading', { name: 'What should crews call your boat?' })
   if (await heading.isVisible().catch(() => false)) {
     await page.getByLabel('Boat / crew name').fill(label)
-    await page.getByRole('button', { name: submitText }).click()
+    await page.getByRole('button', { name: submitText, exact: true }).click()
   }
 }
 
@@ -30,7 +30,7 @@ async function postSupply(
   await page.getByLabel('Quantity').fill(quantity)
   await page.getByLabel('Pickup berth').fill(berth)
   await page.getByRole('button', { name: spoilButton, exact: true }).click()
-  await page.getByRole('button', { name: 'Post supply' }).click()
+  await page.getByRole('button', { name: 'Post supply', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Share surplus supply' })).toBeHidden()
   await expect(page.getByText(`BERTH ${berth}`, { exact: true }).first()).toBeVisible()
 }
@@ -73,30 +73,30 @@ test.describe('JettyShare DEV mobile release gates', () => {
     await expect(receipt.getByText(`Provider: ${providerLabel} · Claimed as ${claimantLabel}`, { exact: true })).toBeVisible()
     await expect(receipt.getByText('HOLD ENDS', { exact: true })).toBeVisible()
     await expect(receipt.getByText('SPOILS', { exact: true })).toBeVisible()
-    await receipt.getByRole('button', { name: 'Done — back to board' }).click()
+    await receipt.getByRole('button', { name: 'Done — back to board', exact: true }).click()
 
     await expect(provider.locator('.supply-card', { hasText: `BERTH ${berth}` })).toHaveCount(0)
 
-    await claimant.getByRole('button', { name: 'Activity' }).click()
+    await claimant.getByRole('button', { name: 'Activity', exact: true }).click()
     const claimActivity = claimant.locator('.managed-card', { hasText: `BERTH ${berth}` })
     await expect(claimActivity).toBeVisible()
     claimant.once('dialog', (dialog) => dialog.accept())
-    await claimActivity.getByRole('button', { name: 'I can’t make it — release' }).click()
-    await claimant.getByRole('button', { name: 'Close' }).click()
+    await claimActivity.getByRole('button', { name: 'I can’t make it — release', exact: true }).click()
+    await claimant.getByRole('button', { name: 'Close', exact: true }).click()
 
     await expect(provider.locator('.supply-card', { hasText: `BERTH ${berth}` })).toBeVisible()
     await expect(claimant.locator('.supply-card', { hasText: `BERTH ${berth}` })).toBeVisible()
 
     await claimant.locator('.supply-card', { hasText: `BERTH ${berth}` }).getByRole('button', { name: /Claim/ }).click()
     await expect(claimant.getByRole('dialog', { name: 'Supply claimed' })).toBeVisible()
-    await claimant.getByRole('button', { name: 'Done — back to board' }).click()
+    await claimant.getByRole('button', { name: 'Done — back to board', exact: true }).click()
 
-    await provider.getByRole('button', { name: 'Activity' }).click()
+    await provider.getByRole('button', { name: 'Activity', exact: true }).click()
     const managedPost = provider.locator('.managed-card', { hasText: `BERTH ${berth}` })
     await expect(managedPost.getByText(`Claimed by ${claimantLabel}`)).toBeVisible()
     provider.once('dialog', (dialog) => dialog.accept())
-    await managedPost.getByRole('button', { name: 'Confirm collected' }).click()
-    await provider.getByRole('button', { name: 'Close' }).click()
+    await managedPost.getByRole('button', { name: 'Confirm collected', exact: true }).click()
+    await provider.getByRole('button', { name: 'Close', exact: true }).click()
 
     await expect(provider.locator('.supply-card', { hasText: `BERTH ${berth}` })).toHaveCount(0)
     await expect(claimant.locator('.supply-card', { hasText: `BERTH ${berth}` })).toHaveCount(0)
@@ -135,11 +135,11 @@ test.describe('JettyShare DEV mobile release gates', () => {
     await page.getByLabel('Quantity').fill('9')
     await page.getByLabel('Pickup berth').fill(berth)
     await page.getByRole('button', { name: '15m', exact: true }).click()
-    await page.getByRole('button', { name: 'Post supply' }).click()
+    await page.getByRole('button', { name: 'Post supply', exact: true }).click()
 
     await expect(page.getByText(/Connection interrupted\. This exact post attempt is saved/)).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Retry same post' })).toBeVisible()
-    await page.getByRole('button', { name: 'Retry same post' }).click()
+    await expect(page.getByRole('button', { name: 'Retry same post', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Retry same post', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Share surplus supply' })).toBeHidden()
     await expect(page.locator('.supply-card', { hasText: `BERTH ${berth}` })).toHaveCount(1)
 
