@@ -276,12 +276,19 @@ test.describe('Component 05 Claim release gates', () => {
       bCard.getByRole('button', { name: /Claim/ }).click(),
     ])
 
+    await expect.poll(async () => {
+      const aWon = await a.getByRole('dialog', { name: 'Supply claimed' }).isVisible().catch(() => false)
+      const bWon = await b.getByRole('dialog', { name: 'Supply claimed' }).isVisible().catch(() => false)
+      const aLost = await a.getByText('Someone just claimed this supply.').isVisible().catch(() => false)
+      const bLost = await b.getByText('Someone just claimed this supply.').isVisible().catch(() => false)
+      return { winners: Number(aWon) + Number(bWon), conflicts: Number(aLost) + Number(bLost) }
+    }, { timeout: 12_000 }).toEqual({ winners: 1, conflicts: 1 })
+
     const aWon = await a.getByRole('dialog', { name: 'Supply claimed' }).isVisible().catch(() => false)
     const bWon = await b.getByRole('dialog', { name: 'Supply claimed' }).isVisible().catch(() => false)
     expect(Number(aWon) + Number(bWon)).toBe(1)
 
     const loser = aWon ? b : a
-    await expect(loser.getByText('Someone just claimed this supply.')).toBeVisible({ timeout: 12_000 })
     const loserClaims = await loser.evaluate(() => JSON.parse(localStorage.getItem('jettyshare:v1:claims') || '{}'))
     expect(Object.keys(loserClaims)).toHaveLength(0)
 
