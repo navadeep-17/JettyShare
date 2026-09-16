@@ -195,10 +195,10 @@ test.describe('Component 07 copy-summary release gates', () => {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 } })
     const page = await context.newPage()
     const reads = await mockHealthySnapshot(page)
-    await installClipboardRecorder(page)
 
     await page.goto('/')
     await expect(page.getByText('BERTH COPY-01', { exact: true })).toBeVisible()
+    await installClipboardRecorder(page)
     reads.reset()
 
     await page.getByRole('button', { name: 'Copy all available supplies', exact: true }).click()
@@ -211,10 +211,10 @@ test.describe('Component 07 copy-summary release gates', () => {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 } })
     const page = await context.newPage()
     const reads = await mockHealthySnapshot(page)
-    await installClipboardRecorder(page)
 
     await page.goto('/')
     await expect(page.getByText('BERTH COPY-01', { exact: true })).toBeVisible()
+    await installClipboardRecorder(page)
     reads.reset()
     await page.evaluate(() => {
       const advanced = Date.now() + 61_000
