@@ -106,12 +106,25 @@ test.describe('provider release -> same claimant reclaim regression', () => {
         await route.fulfill({ status: 400, contentType: 'application/json', body: postgrestError('CAPABILITY_INVALID') })
         return
       }
+
+      const now = Date.now()
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          ...receiptFromRequest({ request: () => ({ postDataJSON: () => ({ p_claim_version: winningVersion, p_claimant_label: 'QA Reclaim Crew' }) }) } as unknown as Route, board.expiresAt),
+          listing_id: LISTING_ID,
           claim_version: winningVersion,
+          item_type: 'BAIT',
+          quantity_value: 5,
+          quantity_unit: 'BUCKET',
+          berth: '15',
+          poster_label: 'QA Provider Release',
+          claimant_label: 'QA Reclaim Crew',
+          effective_status: 'CLAIMED',
+          claimed_at: new Date(now).toISOString(),
+          claim_expires_at: new Date(Math.min(now + 15 * 60_000, new Date(board.expiresAt).getTime())).toISOString(),
+          expires_at: board.expiresAt,
+          server_now: new Date(now).toISOString(),
         }),
       })
     })
