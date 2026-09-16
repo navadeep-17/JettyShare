@@ -61,7 +61,7 @@ test('ambiguous slow claim never reports false failure/success and recovers the 
   expect(attempts).toBe(3)
 
   const savedBeforeRecovery = await claimant.evaluate(() => {
-    const raw = localStorage.getItem('jettyshare:claims:v1')
+    const raw = localStorage.getItem('jettyshare:v1:claims')
     return raw ? JSON.parse(raw) : null
   })
   expect(savedBeforeRecovery).toBeTruthy()
@@ -77,7 +77,7 @@ test('ambiguous slow claim never reports false failure/success and recovers the 
   await expect(claimant.getByText(new RegExp(`Claim recovered — pickup at BERTH ${berth}`))).toBeVisible({ timeout: 12_000 })
 
   const savedAfterRecovery = await claimant.evaluate(() => {
-    const raw = localStorage.getItem('jettyshare:claims:v1')
+    const raw = localStorage.getItem('jettyshare:v1:claims')
     return raw ? JSON.parse(raw) : null
   }) as Record<string, { state?: string; claimVersion?: string; claimToken?: string }>
   const recovered = Object.values(savedAfterRecovery)[0]
