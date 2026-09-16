@@ -12,33 +12,36 @@ concurrency:
   group: qa-preview-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  PREVIEW_ORIGIN: https://jettyshare-git-hardening-spec-parity-navadeep-17s-projects.vercel.app
+
 jobs:
   preview-environment:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
-      - name: Wait for branch Preview and verify DEV isolation
+      - name: Wait for exact branch Preview and verify DEV isolation
         shell: bash
         env:
           PREVIEW_URL: https://jettyshare-git-hardening-spec-parity-navadeep-17s-projects.vercel.app/diagnostics
           EXPECTED_DEV_HOST: ysexholoqrxyuqhmrkuq.supabase.co
           PROD_HOST: bxqumvatvqhvqdngrklk.supabase.co
+          EXPECTED_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           body="$(mktemp)"
           trap 'rm -f "$body"' EXIT
 
           ready=0
-          for attempt in $(seq 1 36); do
+          for attempt in $(seq 1 48); do
             status=$(curl -sS -L --connect-timeout 10 --max-time 20 -o "$body" -w '%{http_code}' "$PREVIEW_URL" || true)
             echo "Attempt $attempt: HTTP $status"
 
-            if [ "$status" = "200" ]; then
+            if [ "$status" = "200" ] && grep -Fq "$EXPECTED_SHA" "$body"; then
               ready=1
               break
             fi
 
-            # 401/403 is an actionable deployment-protection failure rather than a build wait.
             if [ "$status" = "401" ] || [ "$status" = "403" ]; then
               echo "Preview is protected from public QA (HTTP $status)."
               exit 1
@@ -48,13 +51,14 @@ jobs:
           done
 
           if [ "$ready" -ne 1 ]; then
-            echo "Preview did not become publicly reachable within the wait window."
+            echo "Exact Preview commit did not become publicly reachable within the wait window."
             exit 1
           fi
 
           grep -Fq 'JettyShare environment' "$body"
           grep -Fq 'preview' "$body"
           grep -Fq "$EXPECTED_DEV_HOST" "$body"
+          grep -Fq "$EXPECTED_SHA" "$body"
 
           if grep -Fq "$PROD_HOST" "$body"; then
             echo "FAIL: Preview diagnostics references PROD Supabase."
@@ -66,4 +70,30 @@ jobs:
             exit 1
           fi
 
-          echo "PASS: Vercel Preview is reachable, reports preview runtime, and points to JettyShare-DEV only."
+          echo "PASS: exact Vercel Preview commit is reachable, reports preview runtime, and points to JettyShare-DEV only."
+
+  preview-browser:
+    needs: preview-environment
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Run full production-like mobile browser suite against Vercel Preview
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ env.PREVIEW_ORIGIN }}
+        run: npm run test:e2e
+      - name: Upload Playwright evidence on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
