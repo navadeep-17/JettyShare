@@ -1,6 +1,6 @@
 'use client'
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   claimListing,
   confirmCollected,
@@ -67,6 +67,8 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
   const [editingProfile, setEditingProfile] = useState(false)
   const [profileLabel, setProfileLabel] = useState(() => getProfile()?.crewLabel ?? '')
   const [profileDraft, setProfileDraft] = useState(() => getProfile()?.crewLabel ?? '')
+  const lastPostData = useRef<Map<string, any>>(new Map())
+  const lastClaimData = useRef<Map<string, any>>(new Map())
 
   const markUncertain = (key: string, uncertain: boolean) => {
     setUncertainKeys((current) => {
@@ -90,20 +92,34 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
       try {
         const data = await getOwnedListing(id, entry.ownerToken)
         if (data?.server_now) newestServerNow = data.server_now
+        lastPostData.current.set(id, data)
         markUncertain(key, false)
         nextPosts.push({ id, ownerToken: entry.ownerToken, state: entry.state, createPayload: entry.createPayload, data })
         if (entry.state === 'pending-create') {
           setOwnedListing(id, { ownerToken: entry.ownerToken, state: 'managed', createdLocallyAt: entry.createdLocallyAt })
         }
-        if (data?.effective_status === 'COLLECTED' || data?.effective_status === 'EXPIRED') removeOwnedListing(id)
+        if (data?.effective_status === 'COLLECTED' || data?.effective_status === 'EXPIRED') {
+          removeOwnedListing(id)
+          lastPostData.current.delete(id)
+        }
       } catch (error) {
         const code = error instanceof JettyError ? error.code : 'NETWORK'
         if (code === 'NETWORK') markUncertain(key, true)
         if (entry.state === 'pending-create' && code === 'NOT_FOUND' && entry.createPayload) {
           nextPosts.push({ id, ownerToken: entry.ownerToken, state: entry.state, createPayload: entry.createPayload, error: 'PENDING_CREATE' })
         } else {
-          nextPosts.push({ id, ownerToken: entry.ownerToken, state: entry.state, createPayload: entry.createPayload, error: code })
-          if (entry.state === 'managed' && ['NOT_FOUND', 'CAPABILITY_INVALID'].includes(code)) removeOwnedListing(id)
+          nextPosts.push({
+            id,
+            ownerToken: entry.ownerToken,
+            state: entry.state,
+            createPayload: entry.createPayload,
+            data: code === 'NETWORK' ? lastPostData.current.get(id) : undefined,
+            error: code,
+          })
+          if (entry.state === 'managed' && ['NOT_FOUND', 'CAPABILITY_INVALID'].includes(code)) {
+            removeOwnedListing(id)
+            lastPostData.current.delete(id)
+          }
         }
       }
     }
@@ -113,6 +129,7 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
       try {
         const data = await getClaimReceipt(id, entry.claimVersion, entry.claimToken)
         if (data?.server_now) newestServerNow = data.server_now
+        lastClaimData.current.set(id, data)
         markUncertain(key, false)
         nextClaims.push({ id, claimVersion: entry.claimVersion, claimToken: entry.claimToken, state: entry.state, claimantLabel: entry.claimantLabel, data })
         if (data?.effective_status === 'CLAIMED' && entry.state === 'pending-claim') {
@@ -123,7 +140,10 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
             itemExpiresAt: data.expires_at,
           })
         }
-        if (['COLLECTED', 'EXPIRED', 'ACTIVE'].includes(data?.effective_status)) removeClaim(id)
+        if (['COLLECTED', 'EXPIRED', 'ACTIVE'].includes(data?.effective_status)) {
+          removeClaim(id)
+          lastClaimData.current.delete(id)
+        }
       } catch (error) {
         const code = error instanceof JettyError ? error.code : 'NETWORK'
         if (code === 'NETWORK') markUncertain(key, true)
@@ -134,10 +154,12 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
           claimToken: entry.claimToken,
           state: entry.state,
           claimantLabel: entry.claimantLabel,
+          data: code === 'NETWORK' ? lastClaimData.current.get(id) : undefined,
           error: pendingRetry ? 'PENDING_RETRY' : code,
         })
         if (!pendingRetry && ['STALE_CLAIM_VERSION', 'ITEM_EXPIRED', 'NOT_FOUND', 'ALREADY_COLLECTED', 'CLAIM_HOLD_EXPIRED', 'CAPABILITY_INVALID'].includes(code)) {
           removeClaim(id)
+          lastClaimData.current.delete(id)
         }
       }
     }
@@ -287,12 +309,14 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
     try {
       await releaseClaim(claim.id, claim.claimVersion, claim.claimToken)
       removeClaim(claim.id)
+      lastClaimData.current.delete(claim.id)
       markUncertain(key, false)
       setNotice('Claim released — supply is available again if it is still fresh.')
       await onChanged()
     } catch (error) {
       if (error instanceof JettyError && ['STALE_CLAIM_VERSION', 'CLAIM_HOLD_EXPIRED', 'ITEM_EXPIRED', 'ALREADY_COLLECTED', 'CLAIM_UNAVAILABLE'].includes(error.code)) {
         removeClaim(claim.id)
+        lastClaimData.current.delete(claim.id)
         setNotice('That reservation had already ended.')
         await onChanged()
       } else {
@@ -340,6 +364,7 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
     try {
       await confirmCollected(post.id, version, post.ownerToken)
       removeOwnedListing(post.id)
+      lastPostData.current.delete(post.id)
       markUncertain(key, false)
       setNotice('Collection confirmed.')
       await onChanged()
@@ -381,6 +406,7 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
           {posts.length === 0 ? <p className="muted">No manageable posts on this device.</p> : posts.map((post) => {
             const key = `post:${post.id}`
             const uncertain = uncertainKeys.has(key)
+            const networkStale = post.error === 'NETWORK' && Boolean(post.data)
             const claimEndsAt = post.data?.claim_expires_at ? new Date(post.data.claim_expires_at).getTime() : null
             const holdEndingSoon = post.data?.effective_status === 'CLAIMED' && claimEndsAt && claimEndsAt > nowMs && claimEndsAt - nowMs <= 2 * 60_000
             const holdLive = post.data?.effective_status === 'CLAIMED' && claimEndsAt && claimEndsAt > nowMs
@@ -390,8 +416,8 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
                 <p className="berth compact-berth">BERTH {post.createPayload.berth}</p>
                 <p className="muted">The first request may not have reached the harbor board. Retry uses the exact same listing ID and owner capability.</p>
                 <button className="button button-primary" disabled={busyKey === key || uncertain} onClick={()=>void retryPost(post)}>{busyKey === key ? 'Retrying…' : uncertain ? 'Checking status…' : 'Retry same post'}</button>
-              </> : post.error ? <p>Could not load this post ({post.error}).</p> : <>
-                <div className="managed-top"><strong>{post.data.item_type} · {Number(post.data.quantity_value)} {post.data.quantity_unit}</strong><span className="status">{post.data.effective_status}</span></div>
+              </> : post.error && !networkStale ? <p>Could not load this post ({post.error}).</p> : <>
+                <div className="managed-top"><strong>{post.data.item_type} · {Number(post.data.quantity_value)} {post.data.quantity_unit}</strong><span className={`status${networkStale ? ' status-warning' : ''}`}>{networkStale ? 'CHECKING' : post.data.effective_status}</span></div>
                 <p className="berth compact-berth">BERTH {post.data.berth}</p>
                 {post.data.effective_status === 'CLAIMED' && <>
                   <p>Claimed by <strong>{post.data.claimant_label}</strong></p>
@@ -420,6 +446,7 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
           {claims.length === 0 ? <p className="muted">No current claims on this device.</p> : claims.map((claim) => {
             const key = `claim:${claim.id}`
             const uncertain = uncertainKeys.has(key)
+            const networkStale = claim.error === 'NETWORK' && Boolean(claim.data)
             const claimEndsAt = claim.data?.claim_expires_at ? new Date(claim.data.claim_expires_at).getTime() : null
             const holdLive = claim.data?.effective_status === 'CLAIMED' && claimEndsAt && claimEndsAt > nowMs
             return <article className="managed-card" key={claim.id}>
@@ -427,8 +454,8 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
                 <div className="managed-top"><strong>Uncertain claim attempt</strong><span className="status status-warning">CHECKING</span></div>
                 <p className="muted">The original request did not produce authoritative proof. Retry reuses the exact same claim version and capability.</p>
                 <button className="button button-primary" disabled={busyKey === key || uncertain} onClick={()=>void retryClaim(claim)}>{busyKey === key ? 'Retrying…' : uncertain ? 'Checking status…' : 'Retry exact claim'}</button>
-              </> : claim.error ? <p>Latest status: {claim.error}</p> : <>
-                <div className="managed-top"><strong>{claim.data.item_type} · {Number(claim.data.quantity_value)} {claim.data.quantity_unit}</strong><span className="status">{claim.data.effective_status}</span></div>
+              </> : claim.error && !networkStale ? <p>Latest status: {claim.error}</p> : <>
+                <div className="managed-top"><strong>{claim.data.item_type} · {Number(claim.data.quantity_value)} {claim.data.quantity_unit}</strong><span className={`status${networkStale ? ' status-warning' : ''}`}>{networkStale ? 'CHECKING' : claim.data.effective_status}</span></div>
                 <p className="berth compact-berth">BERTH {claim.data.berth}</p>
                 {claim.data.effective_status === 'CLAIMED' && <div className="deadline-grid">
                   <Deadline label="HOLD ENDS" value={claim.data.claim_expires_at} nowMs={nowMs} />
