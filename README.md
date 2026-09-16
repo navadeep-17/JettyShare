@@ -4,7 +4,7 @@
 
 ## Live prototype
 
-**https://jettyshare-navadeep-17s-projects.vercel.app**
+**https://jettyshare.vercel.app**
 
 ## Why this exists
 
@@ -21,7 +21,7 @@ At a small harbor, morning boats often return with ice or bait that will spoil w
 - Ice/Bait filters without changing the authoritative board ordering
 - Literal one-tap claim after a one-time local boat/crew label
 - Atomic database claim so simultaneous claimers cannot both win
-- Large pickup berth receipt and spoil countdown
+- Large pickup berth receipt with separate hold and spoil deadlines
 - 15-minute claim hold, capped by the supply spoil deadline
 - Automatic no-show reavailability while the supply is still fresh
 - Claimant voluntary release and provider release
@@ -44,13 +44,13 @@ Next.js / TypeScript
    │
    ▼
 Supabase PostgreSQL
-   ├── public RPC wrappers
-   ├── private guarded implementations
-   ├── listings state machine
-   └── SHA-256 capability digests
+   ├── exposed api.* RPC wrappers
+   ├── private.* guarded business implementations
+   ├── public listings state machine
+   └── private SHA-256 capability digests
 ```
 
-The browser never receives a service-role key. Direct anonymous table writes are denied. Public RPC wrappers call private business functions that validate capability tokens and authoritative database time.
+The browser never receives a service-role key. Direct anonymous table writes are denied. The browser calls only the narrow `api` RPC surface; guarded private implementations validate capability tokens, expected claim versions, and authoritative database time before protected state transitions.
 
 ## State model
 
@@ -89,35 +89,54 @@ When that deadline passes, the same listing becomes visible again if it is still
 - high contrast, explicit text labels, no state encoded by color alone
 - 44–48px+ touch targets
 - no maps, images, animation frameworks, or other heavy media
-- local countdown rendering; no per-second network polling
+- local countdown rendering from a server-adjusted clock; no per-second network polling
 
 ## Database
 
-The canonical reproducible schema is in:
+The reproducible database contract is versioned in `supabase/migrations/`.
 
-`supabase/migrations/001_core_schema_and_rpcs.sql`
+It includes the schema, constraints, indexes, capability tables, lifecycle functions, explicit `api`/`private` Data API boundary, and sanitized Realtime board invalidation. Production is promoted only through committed forward migrations; fake/demo seed data is never part of the production release path.
 
-It includes schema, constraints, indexes, capability tables, lifecycle RPCs, public/private security boundary, and realtime board invalidation.
+## Environment contract
+
+JettyShare intentionally has **no checked-in Supabase fallback**. Every environment must provide its database target explicitly so a local or Preview build cannot silently talk to Production.
+
+Required browser-safe variables:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<publishable-key>
+NEXT_PUBLIC_CANONICAL_APP_URL=http://localhost:3000
+```
+
+Only the project URL, publishable key, and canonical public origin belong in `NEXT_PUBLIC_*`. Never place a Supabase secret/service-role key, database password, owner capability, or claim capability in the repository or client environment.
+
+Environment mapping:
+
+- **Local / Vercel Preview:** DEV Supabase project
+- **Vercel Production:** PROD Supabase project
+- **Production branch:** `main`
+- **Production canonical URL:** `https://jettyshare.vercel.app`
+
+Changing any `NEXT_PUBLIC_*` value requires a fresh build/deployment because Next.js inlines it into the browser bundle.
 
 ## Local setup
 
+1. Copy `.env.example` to `.env.local`.
+2. Fill it with **DEV/local** values only.
+3. Install from the committed lockfile and start Next.js.
+
 ```bash
-npm install
+cp .env.example .env.local
+npm ci
 npm run dev
 ```
 
-You may optionally provide:
-
-```bash
-NEXT_PUBLIC_SUPABASE_URL=...
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=...
-```
-
-The checked-in fallback is the challenge project's **public browser URL/publishable key only**; no database secret or service-role credential is committed.
+The app fails fast when either Supabase public variable is missing. That is intentional environment-isolation behavior, not an optional configuration path.
 
 ## Quality checks
 
-GitHub Actions runs a production `next build` on every implementation push/PR. Database QA covers anonymous RPC access, atomic claim behavior, no-show reappearance, expiry precedence, RLS/grants, and Supabase security advisors.
+GitHub Actions validates clean install, production dependency audit, release/security preflight, lint, typecheck, unit tests, production build, database contract checks, and mobile browser QA before promotion. The Git-backed Vercel Preview is verified against its exact Git SHA and must point to the isolated DEV Supabase project before production cutover.
 
 ## Deliberate trade-offs
 

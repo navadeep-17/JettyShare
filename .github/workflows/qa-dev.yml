@@ -1,0 +1,22 @@
+name: QA DEV database
+
+on:
+  push:
+    branches: [hardening-spec-parity]
+  workflow_dispatch:
+
+jobs:
+  public-contract:
+    runs-on: ubuntu-latest
+    env:
+      JETTYSHARE_SUPABASE_URL: https://ysexholoqrxyuqhmrkuq.supabase.co
+      JETTYSHARE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_Q42raav9gNMSdOQjoqWTBw_zJOvBGdR
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Public Data API, authorization, and 10-client claim race
+        run: node scripts/db-public-race.mjs

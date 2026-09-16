@@ -3,22 +3,34 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [implementation-core]
+    branches: [main, hardening-spec-parity]
 
 jobs:
-  build:
+  verify:
     runs-on: ubuntu-latest
     env:
       NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_test_key_for_build_only
+      NEXT_PUBLIC_CANONICAL_APP_URL: https://jettyshare-navadeep-17s-projects.vercel.app
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: npm install
+          cache: npm
+      - run: npm ci
+      - name: Audit production dependencies for high/critical advisories
+        run: npm audit --omit=dev --audit-level=high
+      - name: Release security preflight
+        run: npm run security:preflight
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
       - run: npm run build
       - name: Public production smoke test
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           curl --retry 3 --retry-all-errors --retry-delay 5 -fsSL https://jettyshare-navadeep-17s-projects.vercel.app -o /tmp/jettyshare.html
           grep -qE "JettyShare|COASTAL JETTY BOARD" /tmp/jettyshare.html

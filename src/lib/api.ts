@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import type { BoardSnapshot, ClaimReceipt, CreateListingInput } from './types'
+import type { BoardSnapshot, ClaimReceipt, CreateListingInput, ManagedClaimReceipt } from './types'
 
 export type JettyErrorCode =
   | 'INVALID_INPUT' | 'NOT_FOUND' | 'ITEM_EXPIRED' | 'CLAIM_UNAVAILABLE'
@@ -10,6 +10,16 @@ export class JettyError extends Error {
   constructor(public code: JettyErrorCode, message?: string) { super(message ?? code) }
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const CAPABILITY_RE = /^[A-Za-z0-9_-]{43}$/
+const api = supabase.schema('api')
+
+function requireClaimSecret(listingId: string, claimVersion: string, claimToken: string): void {
+  if (!UUID_RE.test(listingId) || !UUID_RE.test(claimVersion) || !CAPABILITY_RE.test(claimToken)) {
+    throw new JettyError('CAPABILITY_INVALID', 'Saved claim capability is malformed')
+  }
+}
+
 function mapRpcError(error: { message?: string } | null): never {
   const message = error?.message ?? ''
   const codes: JettyErrorCode[] = ['INVALID_INPUT','NOT_FOUND','ITEM_EXPIRED','CLAIM_UNAVAILABLE','CLAIM_HOLD_EXPIRED','STALE_CLAIM_VERSION','CAPABILITY_INVALID','ALREADY_COLLECTED','CONFLICT']
@@ -18,13 +28,13 @@ function mapRpcError(error: { message?: string } | null): never {
 }
 
 export async function getBoardSnapshot(): Promise<BoardSnapshot> {
-  const { data, error } = await supabase.rpc('get_board_snapshot')
+  const { data, error } = await api.rpc('get_board_snapshot')
   if (error) mapRpcError(error)
   return data as BoardSnapshot
 }
 
 export async function createListing(input: CreateListingInput, listingId: string, ownerToken: string) {
-  const { data, error } = await supabase.rpc('create_listing', {
+  const { data, error } = await api.rpc('create_listing', {
     p_listing_id: listingId,
     p_item_type: input.itemType,
     p_quantity_value: input.quantityValue,
@@ -39,7 +49,8 @@ export async function createListing(input: CreateListingInput, listingId: string
 }
 
 export async function claimListing(listingId: string, claimantLabel: string, claimVersion: string, claimToken: string): Promise<ClaimReceipt> {
-  const { data, error } = await supabase.rpc('claim_listing', {
+  requireClaimSecret(listingId, claimVersion, claimToken)
+  const { data, error } = await api.rpc('claim_listing', {
     p_listing_id: listingId,
     p_claimant_label: claimantLabel,
     p_claim_version: claimVersion,
@@ -50,31 +61,33 @@ export async function claimListing(listingId: string, claimantLabel: string, cla
 }
 
 export async function releaseClaim(listingId: string, claimVersion: string, claimToken: string) {
-  const { data, error } = await supabase.rpc('release_claim', { p_listing_id: listingId, p_claim_version: claimVersion, p_claim_token: claimToken })
+  requireClaimSecret(listingId, claimVersion, claimToken)
+  const { data, error } = await api.rpc('release_claim', { p_listing_id: listingId, p_claim_version: claimVersion, p_claim_token: claimToken })
   if (error) mapRpcError(error)
   return data
 }
 
 export async function ownerReleaseClaim(listingId: string, expectedClaimVersion: string, ownerToken: string) {
-  const { data, error } = await supabase.rpc('owner_release_claim', { p_listing_id: listingId, p_expected_claim_version: expectedClaimVersion, p_owner_token: ownerToken })
+  const { data, error } = await api.rpc('owner_release_claim', { p_listing_id: listingId, p_expected_claim_version: expectedClaimVersion, p_owner_token: ownerToken })
   if (error) mapRpcError(error)
   return data
 }
 
 export async function confirmCollected(listingId: string, expectedClaimVersion: string, ownerToken: string) {
-  const { data, error } = await supabase.rpc('confirm_collected', { p_listing_id: listingId, p_expected_claim_version: expectedClaimVersion, p_owner_token: ownerToken })
+  const { data, error } = await api.rpc('confirm_collected', { p_listing_id: listingId, p_expected_claim_version: expectedClaimVersion, p_owner_token: ownerToken })
   if (error) mapRpcError(error)
   return data
 }
 
 export async function getOwnedListing(listingId: string, ownerToken: string) {
-  const { data, error } = await supabase.rpc('get_owned_listing', { p_listing_id: listingId, p_owner_token: ownerToken })
+  const { data, error } = await api.rpc('get_owned_listing', { p_listing_id: listingId, p_owner_token: ownerToken })
   if (error) mapRpcError(error)
   return data
 }
 
-export async function getClaimReceipt(listingId: string, claimVersion: string, claimToken: string) {
-  const { data, error } = await supabase.rpc('get_claim_receipt', { p_listing_id: listingId, p_claim_version: claimVersion, p_claim_token: claimToken })
+export async function getClaimReceipt(listingId: string, claimVersion: string, claimToken: string): Promise<ManagedClaimReceipt> {
+  requireClaimSecret(listingId, claimVersion, claimToken)
+  const { data, error } = await api.rpc('get_claim_receipt', { p_listing_id: listingId, p_claim_version: claimVersion, p_claim_token: claimToken })
   if (error) mapRpcError(error)
-  return data
+  return data as ManagedClaimReceipt
 }

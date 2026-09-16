@@ -1,10 +1,18 @@
 import { createClient } from '@supabase/supabase-js'
 
-// Both values below are public browser configuration, not secrets. Vercel/env
-// variables override them when configured; the fallback keeps the published
-// prototype deployable without a server-side secret-management dependency.
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://bxqumvatvqhvqdngrklk.supabase.co'
-const supabasePublishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? 'sb_publishable_vC9nM3a4NDY4Hd9x-BQosg_VxERTrUP'
+// Next.js only inlines NEXT_PUBLIC_* values into browser bundles when the
+// environment access is statically analyzable. Keep these direct references;
+// dynamic process.env[name] access becomes undefined in the client bundle.
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabasePublishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+
+if (!supabaseUrl) {
+  throw new Error('NEXT_PUBLIC_SUPABASE_URL is required. Configure Development/Preview/Production explicitly; JettyShare must never silently fall back to PROD.')
+}
+
+if (!supabasePublishableKey) {
+  throw new Error('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY is required. Configure Development/Preview/Production explicitly; JettyShare must never silently fall back to PROD.')
+}
 
 export const supabase = createClient(supabaseUrl, supabasePublishableKey, {
   auth: { persistSession: false, autoRefreshToken: false },

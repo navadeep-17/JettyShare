@@ -1,0 +1,32 @@
+/* Component 08 contract hardening: keep destructive actions separated and
+   secondary identity text from displacing operational quantity/berth data. */
+.action-grid,
+.receipt-actions {
+  gap: 12px;
+}
+
+.posted-by,
+.profile-panel strong {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.profile-panel > div {
+  min-width: 0;
+}
+
+.copy-stale-banner {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.copy-stale-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.copy-fallback-close {
+  width: 100%;
+  margin-top: 12px;
+}

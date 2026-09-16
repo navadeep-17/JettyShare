@@ -1,0 +1,35 @@
+name: QA browser DEV
+
+on:
+  push:
+    branches: [hardening-spec-parity]
+  workflow_dispatch:
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://ysexholoqrxyuqhmrkuq.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_Q42raav9gNMSdOQjoqWTBw_zJOvBGdR
+      NEXT_PUBLIC_CANONICAL_APP_URL: http://127.0.0.1:3000
+      VERCEL_ENV: preview
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - name: Mobile core, recovery, layout and accessibility gates
+        run: npm run test:e2e
+      - name: Upload Playwright evidence on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
