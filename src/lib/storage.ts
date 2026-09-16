@@ -1,8 +1,10 @@
-import type { ClaimLocalV1, LocalProfileV1, OwnedListingLocalV1 } from './types'
+import type { ActivityHistoryEntryV1, ClaimLocalV1, LocalProfileV1, OwnedListingLocalV1 } from './types'
 
 const PROFILE_KEY = 'jettyshare:v1:profile'
 const OWNED_KEY = 'jettyshare:v1:owned-listings'
 const CLAIMS_KEY = 'jettyshare:v1:claims'
+const HISTORY_KEY = 'jettyshare:v1:activity-history'
+const HISTORY_LIMIT = 20
 
 function safeParse<T>(raw: string | null, fallback: T): T {
   if (!raw) return fallback
@@ -48,11 +50,31 @@ export function getClaims(): Record<string, ClaimLocalV1> {
 }
 
 export function setClaim(id: string, value: ClaimLocalV1): void {
-  const all = getClaims(); all[id] = value
+  const all = getClaims()
+  all[id] = { ...all[id], ...value }
   localStorage.setItem(CLAIMS_KEY, JSON.stringify(all))
 }
 
 export function removeClaim(id: string): void {
   const all = getClaims(); delete all[id]
   localStorage.setItem(CLAIMS_KEY, JSON.stringify(all))
+}
+
+export function getActivityHistory(): ActivityHistoryEntryV1[] {
+  const parsed = safeParse<ActivityHistoryEntryV1[]>(localStorage.getItem(HISTORY_KEY), [])
+  if (!Array.isArray(parsed)) return []
+  return parsed
+    .filter((entry) => entry && typeof entry.historyId === 'string' && typeof entry.occurredAt === 'string')
+    .slice(0, HISTORY_LIMIT)
+}
+
+export function addActivityHistory(entry: ActivityHistoryEntryV1): void {
+  const current = getActivityHistory().filter((existing) => existing.historyId !== entry.historyId)
+  current.unshift(entry)
+  current.sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime())
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(current.slice(0, HISTORY_LIMIT)))
+}
+
+export function clearActivityHistory(): void {
+  localStorage.removeItem(HISTORY_KEY)
 }
