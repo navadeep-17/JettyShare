@@ -36,7 +36,8 @@ export function ClaimReceiptSheet({
   return <div className="overlay" role="presentation">
     <div ref={dialogRef} className="sheet receipt" role="dialog" aria-modal="true" aria-labelledby="claim-success-title">
       <button className="sheet-close" onClick={onClose} aria-label="Close">×</button>
-      <p className="success-mark">✓</p>
+      <p className="success-mark" aria-hidden="true">✓</p>
+      <p className="receipt-kicker">RESERVATION CONFIRMED</p>
       <h2 id="claim-success-title">Supply claimed</h2>
       <p className="muted">Go directly to the pickup berth.</p>
 
@@ -50,6 +51,7 @@ export function ClaimReceiptSheet({
         <div><span>HOLD UNTIL</span><strong>{new Date(receipt.claim_expires_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</strong></div>
       </div>
 
+      <p className="receipt-guidance"><strong>Head to the berth now.</strong> Get there before either deadline.</p>
       <p className="hold-note">The reservation never extends beyond spoil time. To release it early, use <strong>Activity → My Claims</strong>.</p>
       {(holdEnded || itemExpired) && <div className="banner warning" role="status">Reservation is no longer current. Checking the authoritative state now.</div>}
       <div className="receipt-actions">
