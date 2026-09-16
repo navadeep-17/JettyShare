@@ -12,7 +12,7 @@ At a small harbor, morning boats often return with ice or bait that will spoil w
 
 ## Core flow
 
-`Post surplus → urgency-sorted live board → atomic claim → claim-bound pickup verification → collection / release / no-show recovery`
+`Post surplus → urgency-sorted live board → atomic claim → claim-bound pickup verification → collection / release / withdrawal / no-show recovery`
 
 ### Features
 
@@ -27,7 +27,8 @@ At a small harbor, morning boats often return with ice or bait that will spoil w
 - 15-minute claim hold, capped by the supply spoil deadline
 - Automatic no-show reavailability while the supply is still fresh
 - Claimant voluntary release and provider release
-- Device-local **My Activity** for posts, claims, pickup-code recovery, and uncertain slow-network recovery
+- Provider-authorized **Withdraw supply** when an offer is no longer available; a claimed withdrawal cancels rather than reopens the reservation
+- Device-local **My Activity** for live posts/claims plus a redacted 20-entry Recent Activity history
 - Copyable text summary for WhatsApp/local messaging groups
 - Realtime invalidation plus authoritative refetch and 60-second reconciliation safety net
 
@@ -37,7 +38,9 @@ A boat/crew label is deliberately **not verified identity**. It is a local coord
 
 Pickup Verification connects that digital authority to the physical handoff. Each current claim exposes a four-digit code only to the claimant session that controls the claim capability. At the berth, the provider enters that code using the provider's owner capability. Verification proves that the person present can access the browser/session controlling the **current claim generation**; it does not verify a legal identity, phone number, vessel registration, or ownership of the crew label.
 
-`confirm_collected` checks the pickup code again in PostgreSQL, so the UI cannot bypass the handoff proof. Release, no-show, expiry, or a newer claim generation makes the old claim proof unusable.
+`confirm_collected` checks the pickup code again in PostgreSQL, so the UI cannot bypass the handoff proof. Release, no-show, expiry, withdrawal, or a newer claim generation makes the old live reservation unusable.
+
+Recent Activity does not create a second authorization system. It is local display history only and never stores owner tokens, claim tokens, capability digests, pickup codes, or service keys. A second browser using the same crew label does not inherit that history or authority.
 
 ## Architecture
 
@@ -48,6 +51,7 @@ Mobile browser
 Next.js / TypeScript
    │
    ├── local crew label + capability secrets
+   ├── redacted device-local recent activity
    ├── Quick Post / Live Board / Claim / Activity / Pickup Verification
    └── Supabase Realtime invalidation
    │
@@ -55,7 +59,7 @@ Next.js / TypeScript
 Supabase PostgreSQL
    ├── exposed api.* RPC wrappers
    ├── private.* guarded business implementations
-   ├── public listings state machine
+   ├── public listings state machine + withdrawal timestamp
    └── private SHA-256 capability digests
 ```
 
@@ -63,7 +67,7 @@ The browser never receives a service-role key. Direct anonymous table writes are
 
 ## State model
 
-Stored states are deliberately small:
+Stored states stay deliberately small:
 
 ```text
 ACTIVE → CLAIMED → COLLECTED
@@ -71,11 +75,17 @@ ACTIVE → CLAIMED → COLLECTED
    └ release/no-show
 ```
 
-`EXPIRED` is an **effective state derived from PostgreSQL time**, not a cron-driven stored value. A stale claim whose hold has elapsed is also effectively `ACTIVE` again if the supply has not spoiled.
+`EXPIRED` remains an **effective state derived from PostgreSQL time**, not a cron-driven stored value. A stale claim whose hold has elapsed is effectively `ACTIVE` again if the supply has not spoiled.
+
+`WITHDRAWN` is also an effective terminal state. A valid provider withdrawal records `withdrawn_at` and immediately moves the listing/claim deadline to the authoritative database timestamp. The item therefore leaves the public board and cannot reopen, while the current authorized claimant can still reconcile that exact claim generation to `WITHDRAWN` before its local live capability is archived.
+
+Published supply details remain immutable. JettyShare intentionally uses **withdraw + fresh repost** instead of editing a listing that another skipper may already have observed or claimed.
 
 ## Race-condition handling
 
 `claim_listing` locks the target row and decides the winner inside one PostgreSQL transaction. If a valid hold already exists, later claimers receive `CLAIM_UNAVAILABLE`. Every claim generation also carries a UUID `claim_version`; stale claimant/provider screens cannot release, verify, or collect a newer claim.
+
+`withdraw_listing` is owner-capability-gated and row-locked as well. Retrying the same withdrawal is idempotent. A collected listing cannot be withdrawn and a withdrawn listing cannot be claimed again.
 
 ## Pickup verification
 
@@ -90,9 +100,15 @@ The provider's verification RPC requires all of the following at once:
 
 A successful verification enables the provider's collection action, but PostgreSQL validates the same code again inside `confirm_collected` before the terminal `COLLECTED` transition.
 
+## Activity and local history
+
+`My Posts` and `My Claims` are still the live management surface for capabilities held by the current browser. When a post or claim reaches a terminal/ended state, JettyShare removes the no-longer-needed live authority and writes only a redacted activity record locally.
+
+Recent Activity keeps at most 20 entries, newest first. It may include POST/CLAIM, item, quantity/unit, berth, a coordination label when useful, outcome, and event time. It can be cleared without changing any live database state. Old pre-history activity is deliberately not reconstructed from crew labels because labels are not identity.
+
 ## Slow-3G / uncertain requests
 
-Create and claim IDs/capabilities are persisted in local storage **before** the network request. If the response is lost, retries reuse the same identifiers rather than creating a duplicate. My Activity can reconcile or retry the exact saved attempt. Network uncertainty during pickup verification does not discard either party's capability.
+Create and claim IDs/capabilities are persisted in local storage **before** the network request. If the response is lost, retries reuse the same identifiers rather than creating a duplicate. My Activity can reconcile or retry the exact saved attempt. Network uncertainty during pickup verification or withdrawal retains the relevant capability until JettyShare can prove the authoritative result.
 
 ## No-show handling
 
@@ -117,7 +133,7 @@ When that deadline passes, the same listing becomes visible again if it is still
 
 The reproducible database contract is versioned in `supabase/migrations/`.
 
-It includes the schema, constraints, indexes, capability tables, lifecycle functions, explicit `api`/`private` Data API boundary, sanitized Realtime board invalidation, and Pickup Verification v1.1. Migrations `008_pickup_verification_bridge.sql` and `009_finalize_pickup_verification.sql` add the claim-bound pickup proof using a zero-downtime bridge before removing the legacy collection RPC. Production is promoted only through committed forward migrations; fake/demo seed data is never part of the production release path.
+It includes the schema, constraints, indexes, capability tables, lifecycle functions, explicit `api`/`private` Data API boundary, sanitized Realtime board invalidation, Pickup Verification v1.1, and Activity/Withdrawal v1.2. Migrations `008_pickup_verification_bridge.sql` and `009_finalize_pickup_verification.sql` add the claim-bound pickup proof using a zero-downtime bridge before removing the legacy collection RPC. Migration `010_activity_history_and_withdrawal.sql` adds the owner-authorized terminal withdrawal path; Recent Activity itself stays redacted and device-local. Production is promoted only through committed forward migrations; fake/demo seed data is never part of the production release path.
 
 ## Environment contract
 
@@ -162,7 +178,7 @@ GitHub Actions validates clean install, production dependency audit, release/sec
 
 ## Deliberate trade-offs
 
-JettyShare intentionally does **not** include email/password accounts, phone verification, OTPs, maps/GPS, chat, payments, ratings, image uploads, or push notifications. For a 30-boat harbor these would add bandwidth, setup friction, and failure modes without improving the core physical handoff. The four-digit pickup proof verifies possession of the current claim session at handover without turning JettyShare into an identity platform.
+JettyShare intentionally does **not** include email/password accounts, phone verification, OTPs, maps/GPS, chat, payments, ratings, image uploads, or push notifications. For a 30-boat harbor these would add bandwidth, setup friction, and failure modes without improving the core physical handoff. The four-digit pickup proof verifies possession of the current claim session at handover without turning JettyShare into an identity platform. Published listings are immutable; providers withdraw and repost instead of mutating details that another crew may already be acting on.
 
 ## Tech stack
 
