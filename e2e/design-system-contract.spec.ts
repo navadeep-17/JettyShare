@@ -140,22 +140,27 @@ test.describe('Component 08 frozen design-system contract', () => {
     await mockUrgentBoard(page)
     await page.goto('/')
 
-    const values = await page.evaluate(() => {
-      const body = getComputedStyle(document.body)
-      const claim = getComputedStyle(document.querySelector('.supply-card .button-primary') as HTMLElement)
-      const filter = getComputedStyle(document.querySelector('.filters button') as HTMLElement)
-      return {
-        bodyText: body.color,
-        bodyBg: body.backgroundColor,
-        claimText: claim.color,
-        claimBg: claim.backgroundColor,
-        filterBorder: filter.borderColor,
-        filterBg: filter.backgroundColor,
-      }
+    const claim = page.locator('.supply-card .button-primary')
+    const filter = page.getByRole('button', { name: 'All', exact: true })
+    await expect(claim).toBeVisible()
+    await expect(filter).toBeVisible()
+
+    const bodyValues = await page.locator('body').evaluate((element) => {
+      const style = getComputedStyle(element)
+      return { text: style.color, background: style.backgroundColor }
     })
-    expect(contrastRatio(parseRgb(values.bodyText), parseRgb(values.bodyBg))).toBeGreaterThanOrEqual(4.5)
-    expect(contrastRatio(parseRgb(values.claimText), parseRgb(values.claimBg))).toBeGreaterThanOrEqual(4.5)
-    expect(contrastRatio(parseRgb(values.filterBorder), parseRgb(values.filterBg))).toBeGreaterThanOrEqual(3)
+    const claimValues = await claim.evaluate((element) => {
+      const style = getComputedStyle(element)
+      return { text: style.color, background: style.backgroundColor }
+    })
+    const filterValues = await filter.evaluate((element) => {
+      const style = getComputedStyle(element)
+      return { border: style.borderColor, background: style.backgroundColor }
+    })
+
+    expect(contrastRatio(parseRgb(bodyValues.text), parseRgb(bodyValues.background))).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio(parseRgb(claimValues.text), parseRgb(claimValues.background))).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio(parseRgb(filterValues.border), parseRgb(filterValues.background))).toBeGreaterThanOrEqual(3)
     await context.close()
   })
 
