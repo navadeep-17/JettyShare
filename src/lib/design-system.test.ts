@@ -45,7 +45,7 @@ describe('Component 08 frozen CSS contract', () => {
 
   it('separates destructive actions and protects operational layout from long secondary identity text', () => {
     expect(hardening).toMatch(/\.action-grid,\s*\.receipt-actions\s*\{\s*gap:\s*12px;/)
-    expect(hardening).toMatch(/\.posted-by,\s*\.profile-panel strong\s*\{[^}]*overflow-wrap:\s*anywhere;/s)
-    expect(hardening).toMatch(/\.copy-stale-actions\s*\{[^}]*gap:\s*12px;/s)
+    expect(hardening).toMatch(/\.posted-by,\s*\.profile-panel strong\s*\{[^}]*overflow-wrap:\s*anywhere;[\s\S]*\}/)
+    expect(hardening).toMatch(/\.copy-stale-actions\s*\{[^}]*gap:\s*12px;[\s\S]*\}/)
   })
 })
