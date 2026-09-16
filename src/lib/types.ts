@@ -62,6 +62,7 @@ export type ClaimReceipt = {
   claim_expires_at: string
   expires_at: string
   server_now: string
+  pickup_code: string
 }
 
 export type ManagedClaimReceipt = ClaimReceipt & {
