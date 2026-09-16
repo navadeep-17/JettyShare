@@ -48,6 +48,9 @@ const allowedNames = new Set([
   'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY',
   'NEXT_PUBLIC_CANONICAL_APP_URL',
 ])
+const fakeUrl = /^https:\/\/(?:your-project-ref|example)\.supabase\.co$/
+const fakeKey = /^(?:your-publishable-key|sb_publishable_(?:example|test)[A-Za-z0-9_-]*)$/
+
 for (const rawLine of envExample.split(/\r?\n/)) {
   const line = rawLine.trim()
   if (!line || line.startsWith('#')) continue
@@ -59,7 +62,13 @@ for (const rawLine of envExample.split(/\r?\n/)) {
   const name = line.slice(0, index)
   const value = line.slice(index + 1)
   if (!allowedNames.has(name)) fail(`.env.example contains unexpected variable ${name}.`)
-  if (name !== 'NEXT_PUBLIC_CANONICAL_APP_URL' && value) fail(`.env.example must not contain a real value for ${name}.`)
+
+  if (name === 'NEXT_PUBLIC_SUPABASE_URL' && value && !fakeUrl.test(value)) {
+    fail('.env.example Supabase URL must be empty or an unmistakable fake placeholder.')
+  }
+  if (name === 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY' && value && !fakeKey.test(value)) {
+    fail('.env.example publishable key must be empty or an unmistakable fake placeholder.')
+  }
   if (name === 'NEXT_PUBLIC_CANONICAL_APP_URL' && value && !/^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\/?$/.test(value)) {
     fail('.env.example canonical URL must be empty or local-only.')
   }
