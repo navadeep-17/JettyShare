@@ -155,12 +155,12 @@ test.describe('Component 08 frozen design-system contract', () => {
     })
     const filterValues = await filter.evaluate((element) => {
       const style = getComputedStyle(element)
-      return { border: style.borderColor, background: style.backgroundColor }
+      return { background: style.backgroundColor }
     })
 
     expect(contrastRatio(parseRgb(bodyValues.text), parseRgb(bodyValues.background))).toBeGreaterThanOrEqual(4.5)
     expect(contrastRatio(parseRgb(claimValues.text), parseRgb(claimValues.background))).toBeGreaterThanOrEqual(4.5)
-    expect(contrastRatio(parseRgb(filterValues.border), parseRgb(filterValues.background))).toBeGreaterThanOrEqual(3)
+    expect(contrastRatio(parseRgb(filterValues.background), parseRgb(bodyValues.background))).toBeGreaterThanOrEqual(3)
     await context.close()
   })
 
