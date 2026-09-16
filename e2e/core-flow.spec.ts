@@ -172,8 +172,9 @@ test.describe('JettyShare DEV mobile release gates', () => {
     await card.getByRole('button', { name: /Claim/ }).click()
     await saveIdentityIfNeeded(claimant, `QA Slow Claimant ${id}`, 'Save & Claim')
 
-    await expect(claimant.getByRole('dialog', { name: 'Supply claimed' })).toBeVisible({ timeout: 20_000 })
-    await expect(claimant.getByText(`BERTH ${berth}`, { exact: true })).toBeVisible()
+    const recoveredReceipt = claimant.getByRole('dialog', { name: 'Supply claimed' })
+    await expect(recoveredReceipt).toBeVisible({ timeout: 20_000 })
+    await expect(recoveredReceipt.getByText(`BERTH ${berth}`, { exact: true })).toBeVisible()
     expect(intercepted).toBeTruthy()
 
     await providerContext.close()
