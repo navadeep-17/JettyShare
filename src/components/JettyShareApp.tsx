@@ -162,10 +162,47 @@ export function JettyShareApp() {
         return
       }
 
-      const existing = getClaims()[item.id]
+      let existing = getClaims()[item.id]
       if (existing?.state === 'held') {
-        setNotice('This device already holds that supply. Open Activity to manage the reservation.')
-        return
+        try {
+          const current = await getClaimReceipt(item.id, existing.claimVersion, existing.claimToken)
+          if (current.effective_status === 'CLAIMED') {
+            setNotice('This device already holds that supply. Open Activity to manage the reservation.')
+            return
+          }
+
+          removeClaim(item.id)
+          existing = undefined
+          if (current.effective_status !== 'ACTIVE') {
+            setNotice(current.effective_status === 'COLLECTED'
+              ? 'This supply has already been collected.'
+              : 'This previous reservation has ended. The board has been refreshed.')
+            await refresh()
+            return
+          }
+        } catch (error) {
+          const code = error instanceof JettyError ? error.code : 'NETWORK'
+          if (code === 'NETWORK') {
+            setNotice('Connection interrupted while checking the saved reservation. Its access key is being kept until JettyShare can verify the current state.')
+            return
+          }
+          if (['STALE_CLAIM_VERSION', 'CLAIM_HOLD_EXPIRED', 'CAPABILITY_INVALID'].includes(code)) {
+            removeClaim(item.id)
+            existing = undefined
+          } else if (['ITEM_EXPIRED', 'NOT_FOUND', 'ALREADY_COLLECTED'].includes(code)) {
+            removeClaim(item.id)
+            setNotice(code === 'ITEM_EXPIRED'
+              ? 'This supply has expired.'
+              : code === 'ALREADY_COLLECTED'
+                ? 'This supply has already been collected.'
+                : 'This listing is no longer available.')
+            await refresh()
+            return
+          } else {
+            setNotice('Could not verify the saved reservation yet. Open Activity or refresh before trying again.')
+            return
+          }
+        }
       }
 
       if (!existing) {
