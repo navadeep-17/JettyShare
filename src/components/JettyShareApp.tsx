@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { claimListing, getClaimReceipt, JettyError } from '@/lib/api'
 import { newClaimVersion, randomCapability } from '@/lib/capabilities'
 import { getClaims, getOwnedListings, getProfile, removeClaim, setClaim, storageAvailable } from '@/lib/storage'
-import { activeSummaryItems, buildLastKnownSummary, buildShareSummary } from '@/lib/summary'
+import { activeSummaryItems, buildLastKnownSummary, canonicalBoardUrl, formatActiveSupplySummary } from '@/lib/summary'
 import type { ActiveBoardItem, ClaimReceipt } from '@/lib/types'
 import { useLiveBoard } from '@/hooks/useLiveBoard'
 import { IdentitySheet } from './IdentitySheet'
@@ -282,19 +282,42 @@ export function JettyShareApp() {
         return
       }
 
-      const active = activeSummaryItems(source, clockNowMs)
-      if (!active.length) {
+      const result = formatActiveSupplySummary({
+        items: source.items,
+        adjustedNowMs: clockNowMs,
+        canonicalBoardUrl: canonicalBoardUrl(window.location.origin),
+      })
+      if (!result.includedCount) {
         setNotice('No supplies are currently available to copy.')
         return
       }
 
-      const text = buildShareSummary(source, window.location.origin, clockNowMs)
       try {
-        await navigator.clipboard.writeText(text)
-        setNotice(`${active.length} available ${active.length === 1 ? 'supply' : 'supplies'} copied.`)
+        await navigator.clipboard.writeText(result.text)
+        setNotice(`${result.includedCount} available ${result.includedCount === 1 ? 'supply' : 'supplies'} copied.`)
       } catch {
-        setCopyFallback({ text, lastKnown: false })
+        setCopyFallback({ text: result.text, lastKnown: false })
       }
+    } finally {
+      copyBusyRef.current = false
+      setCopyBusy(false)
+    }
+  }
+
+  async function retryCopyRefresh(fallbackText: string | null = lastKnownOffer) {
+    if (copyBusyRef.current) return
+    copyBusyRef.current = true
+    setCopyBusy(true)
+    setCopyFallback(null)
+    setLastKnownOffer(null)
+    try {
+      const fresh = await refresh()
+      if (fresh) {
+        setNotice('Current availability refreshed. Copy all available when ready.')
+        return
+      }
+      if (fallbackText) setLastKnownOffer(fallbackText)
+      setNotice('Could not refresh availability. Try again, or inspect the explicitly labelled last-known text.')
     } finally {
       copyBusyRef.current = false
       setCopyBusy(false)
@@ -325,13 +348,25 @@ export function JettyShareApp() {
     {!online && <div className="banner warning">OFFLINE — last-loaded information may be stale. Connection is required for authoritative post, claim, release and collection actions.</div>}
     {degraded && <div className="banner warning">UPDATES MAY BE DELAYED — the last good board stays visible while JettyShare reconciles automatically.</div>}
     {notice && <div className="banner" role="status">{notice}<button onClick={()=>setNotice('')} aria-label="Dismiss">×</button></div>}
-    {lastKnownOffer && <div className="banner warning" role="status"><span>Refresh failed. Last-known text is not current.</span><button className="inline-action" onClick={()=>{setCopyFallback({ text: lastKnownOffer, lastKnown: true }); setLastKnownOffer(null)}}>View last-known text</button></div>}
+    {lastKnownOffer && <div className="banner warning copy-stale-banner" role="status">
+      <span>Refresh failed. Last-known text is not current.</span>
+      <div className="copy-stale-actions">
+        <button className="inline-action" disabled={copyBusy} onClick={()=>void retryCopyRefresh(lastKnownOffer)}>Retry refresh</button>
+        <button className="inline-action" disabled={copyBusy} onClick={()=>{setCopyFallback({ text: lastKnownOffer, lastKnown: true }); setLastKnownOffer(null)}}>View last-known text</button>
+      </div>
+    </div>}
 
     <section className="board-tools">
       <div className="filters" role="group" aria-label="Filter supplies">
         {(['ALL', 'ICE', 'BAIT'] as Filter[]).map((value)=><button key={value} aria-pressed={filter === value} className={filter === value ? 'selected' : ''} onClick={()=>setFilter(value)}>{value === 'ALL' ? 'All' : value === 'ICE' ? 'Ice' : 'Bait'}</button>)}
       </div>
-      <button className="copy-button" disabled={copyBusy || !snapshot || liveItems.length === 0} onClick={()=>void copySummary()}>{copyBusy ? 'Checking availability…' : 'Copy all available'}</button>
+      <button
+        className="copy-button"
+        aria-label="Copy all available supplies"
+        aria-busy={copyBusy}
+        disabled={copyBusy || !snapshot || liveItems.length === 0}
+        onClick={()=>void copySummary()}
+      >{copyBusy ? 'Checking availability…' : 'Copy all available'}</button>
     </section>
 
     <div className="section-heading">
@@ -353,6 +388,11 @@ export function JettyShareApp() {
     {postLabel && <PostSheet crewLabel={postLabel} onClose={()=>setPostLabel(null)} onPosted={refresh} />}
     {receipt && <ClaimReceiptSheet receipt={receipt} onClose={()=>setReceipt(null)} onHoldEnded={async()=>{await refresh(); setReceipt(null); setNotice('Reservation hold ended. The latest board state has been checked.')}} />}
     {activityOpen && <MyActivitySheet onClose={()=>setActivityOpen(false)} onChanged={refresh} />}
-    {copyFallback && <CopyFallbackSheet text={copyFallback.text} lastKnown={copyFallback.lastKnown} onClose={()=>setCopyFallback(null)} />}
+    {copyFallback && <CopyFallbackSheet
+      text={copyFallback.text}
+      lastKnown={copyFallback.lastKnown}
+      onRetryRefresh={copyFallback.lastKnown ? ()=>void retryCopyRefresh(copyFallback.text) : undefined}
+      onClose={()=>setCopyFallback(null)}
+    />}
   </main>
 }
