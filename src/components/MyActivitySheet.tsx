@@ -131,6 +131,11 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
         if (data?.server_now) newestServerNow = data.server_now
         lastClaimData.current.set(id, data)
         markUncertain(key, false)
+        if (['COLLECTED', 'EXPIRED', 'ACTIVE'].includes(data?.effective_status)) {
+          removeClaim(id)
+          lastClaimData.current.delete(id)
+          continue
+        }
         nextClaims.push({ id, claimVersion: entry.claimVersion, claimToken: entry.claimToken, state: entry.state, claimantLabel: entry.claimantLabel, data })
         if (data?.effective_status === 'CLAIMED' && entry.state === 'pending-claim') {
           setClaim(id, {
@@ -140,14 +145,17 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
             itemExpiresAt: data.expires_at,
           })
         }
-        if (['COLLECTED', 'EXPIRED', 'ACTIVE'].includes(data?.effective_status)) {
-          removeClaim(id)
-          lastClaimData.current.delete(id)
-        }
       } catch (error) {
         const code = error instanceof JettyError ? error.code : 'NETWORK'
         if (code === 'NETWORK') markUncertain(key, true)
         const pendingRetry = entry.state === 'pending-claim' && code === 'STALE_CLAIM_VERSION'
+        const endedClaim = !pendingRetry && ['STALE_CLAIM_VERSION', 'ITEM_EXPIRED', 'NOT_FOUND', 'ALREADY_COLLECTED', 'CLAIM_HOLD_EXPIRED', 'CAPABILITY_INVALID'].includes(code)
+        if (endedClaim) {
+          removeClaim(id)
+          lastClaimData.current.delete(id)
+          markUncertain(key, false)
+          continue
+        }
         nextClaims.push({
           id,
           claimVersion: entry.claimVersion,
@@ -157,10 +165,6 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
           data: code === 'NETWORK' ? lastClaimData.current.get(id) : undefined,
           error: pendingRetry ? 'PENDING_RETRY' : code,
         })
-        if (!pendingRetry && ['STALE_CLAIM_VERSION', 'ITEM_EXPIRED', 'NOT_FOUND', 'ALREADY_COLLECTED', 'CLAIM_HOLD_EXPIRED', 'CAPABILITY_INVALID'].includes(code)) {
-          removeClaim(id)
-          lastClaimData.current.delete(id)
-        }
       }
     }
 
