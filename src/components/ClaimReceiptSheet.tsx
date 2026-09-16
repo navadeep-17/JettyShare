@@ -45,6 +45,12 @@ export function ClaimReceiptSheet({
       <div className="berth-panel"><span>PICKUP</span><strong>BERTH {receipt.berth}</strong></div>
       <p className="posted-by receipt-provider">Provider: {receipt.poster_label} · Claimed as {receipt.claimant_label}</p>
 
+      <div className="receipt-guidance" aria-label="Pickup verification code">
+        <p className="fact-label">PICKUP CODE</p>
+        <p className="quantity">{receipt.pickup_code}</p>
+        <p className="muted">Show or tell this four-digit code to the supplying crew when you arrive. It proves this device controls the current reservation.</p>
+      </div>
+
       <div className="receipt-grid receipt-grid-three">
         <div><span>HOLD ENDS</span><strong><Countdown expiresAt={receipt.claim_expires_at} nowMs={nowMs} /></strong></div>
         <div><span>SPOILS</span><strong><Countdown expiresAt={receipt.expires_at} nowMs={nowMs} /></strong></div>
