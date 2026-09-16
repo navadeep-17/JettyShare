@@ -1,5 +1,8 @@
 import { defineConfig } from '@playwright/test'
 
+const remoteBaseURL = process.env.PLAYWRIGHT_BASE_URL?.replace(/\/$/, '')
+const baseURL = remoteBaseURL ?? 'http://127.0.0.1:3000'
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
@@ -9,15 +12,19 @@ export default defineConfig({
   expect: { timeout: 12_000 },
   reporter: [['line'], ['html', { outputFolder: 'playwright-report', open: 'never' }]],
   use: {
-    baseURL: 'http://127.0.0.1:3000',
+    baseURL,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
   },
-  webServer: {
-    command: 'npm start',
-    url: 'http://127.0.0.1:3000',
-    reuseExistingServer: false,
-    timeout: 120_000,
-  },
+  ...(remoteBaseURL
+    ? {}
+    : {
+        webServer: {
+          command: 'npm start',
+          url: baseURL,
+          reuseExistingServer: false,
+          timeout: 120_000,
+        },
+      }),
 })
