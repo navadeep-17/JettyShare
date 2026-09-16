@@ -162,7 +162,7 @@ export function JettyShareApp() {
         return
       }
 
-      let existing = getClaims()[item.id]
+      let existing: ReturnType<typeof getClaims>[string] | undefined = getClaims()[item.id]
       if (existing?.state === 'held') {
         try {
           const current = await getClaimReceipt(item.id, existing.claimVersion, existing.claimToken)
