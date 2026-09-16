@@ -1,31 +1,34 @@
-# Component 09 implementation addendum v1.1
+# Component 09 implementation addendum v1.1 — superseded by parity restoration
 
-Status: implementation-time refinement to **Component 09 — Deployment + Security Configuration v1.0**. It does not alter OAKS-required behavior, claim correctness, capability authorization, server-time authority, or the public UX.
+Status: **superseded implementation-time refinement**. Component 09 v1.0 remains the release contract.
 
-## Refined Data API wrapper location
+## Why this addendum existed
 
-Component 09 v1.0 preferred an exposed `api` schema with SECURITY INVOKER wrappers calling `private.*_impl` SECURITY DEFINER routines. The deployed Supabase project was initially bootstrapped with the default exposed `public` schema before this hardening audit.
+The first hosted JettyShare database had been bootstrapped with browser-callable wrappers in Supabase's default exposed `public` schema. During the hardening audit, v1.1 documented temporarily retaining that deployment mechanism while preserving the authorization invariants.
 
-For the submission build, JettyShare retains the already-deployed small browser RPC wrappers in `public` instead of changing the project-wide PostgREST exposed-schema setting during the release window. This is an intentional deployment-mechanism refinement, not a weakening of the authorization model.
+## Final hardening decision
 
-The required security invariants remain:
+That temporary refinement is no longer the submission design. The hardening implementation restores the frozen Component 09 boundary:
 
-1. Browser roles have no direct INSERT/UPDATE/DELETE authority on `public.listings`.
-2. Browser roles have no SELECT/DML authority on `private.listing_capabilities`.
-3. The `private` schema is not an exposed PostgREST schema; private helper functions are not callable as Data API endpoints.
-4. Public wrappers return only public-safe data and perform no privileged data access themselves; guarded implementation functions enforce server time, capability digests, state and expected `claim_version`.
-5. All SECURITY DEFINER functions use `search_path=''` and schema-qualified references.
-6. The browser still receives only a Supabase publishable key; no service-role/secret key exists in the runtime.
-7. Realtime remains a sanitized `board_changed` invalidation signal followed by an authoritative snapshot read.
+- browser-callable RPC wrappers live in the explicit exposed `api` schema;
+- guarded business implementations live in `private` and use `SECURITY DEFINER` with `search_path=''` and schema-qualified references;
+- authoritative listings remain in `public`, but direct anonymous table DML is denied;
+- capability digests remain in `private.listing_capabilities` and are not exposed through the Data API;
+- browser code calls `supabase.schema('api')` only;
+- the browser receives only the project URL and publishable key, never a service-role/secret key;
+- Realtime remains sanitized invalidation followed by an authoritative snapshot refetch.
+
+The isolated DEV project already runs this `api`/`private` model and the public-client security/race suite passes against it. The Production database retains its legacy public-wrapper surface only until the coordinated release cutover; at that point the committed API-boundary migrations are applied immediately before the hardened `main` deployment is verified.
 
 ## Release proof required
 
-Before this addendum is accepted for submission, automated/public-client checks must prove:
+Final Production evidence must prove:
 
-- direct anonymous listing DML is denied;
-- `private.listing_capabilities` cannot be queried through the Data API;
-- a private implementation function cannot be addressed through the Data API;
-- only the intended public wrapper functions are used by the browser;
-- wrong capabilities and stale claim versions are rejected.
+1. only `api` is exposed through the browser Data API;
+2. direct anonymous listing INSERT/UPDATE/DELETE is denied;
+3. `private.listing_capabilities` and private implementation functions are inaccessible through the Data API;
+4. wrong capabilities and stale claim versions are rejected;
+5. the deployed frontend is the exact tested Git SHA and uses the PROD Supabase project;
+6. no capability, service-role secret, database password, or private payload is exposed in browser responses, logs, or Realtime events.
 
-If any of those checks fail, this refinement is invalid and the release is blocked.
+Until those Production checks are green, Component 09 is not a completed release gate.
