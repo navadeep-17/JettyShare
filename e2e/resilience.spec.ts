@@ -76,7 +76,11 @@ test.describe('JettyShare recovery and slow-network release gates', () => {
     await expect(page.getByText('Pending post is locked to its original details so retry cannot create a duplicate.')).toBeVisible()
 
     await expect(page.getByRole('heading', { name: 'Share surplus supply' })).toBeHidden({ timeout: 25_000 })
-    await expect(page.locator('.supply-card', { hasText: `BERTH ${berth}` })).toHaveCount(1)
+    // Keep the network throttled through authoritative board reconciliation.
+    // A free hosted backend can add transient latency on top of the emulated
+    // link, so allow the full slow-network gate rather than the 12s global
+    // assertion timeout. The mutation itself still must be exactly one request.
+    await expect(page.locator('.supply-card', { hasText: `BERTH ${berth}` })).toHaveCount(1, { timeout: 30_000 })
     expect(createRequests).toBe(1)
 
     await session.send('Network.emulateNetworkConditions', {
