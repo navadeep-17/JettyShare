@@ -1,4 +1,4 @@
--- JettyShare Component 01/06 lifecycle integration assertions.
+-- JettyShare Component 01/05/06 lifecycle integration assertions.
 -- Run with a privileged test connection against DEV/local. The transaction rolls back.
 
 begin;
@@ -15,6 +15,7 @@ declare
   v_retry jsonb;
   v_now timestamptz := now();
   v_failed boolean;
+  v_expiry timestamptz;
 begin
   -- DB-01 / DB-05: create and claim a fresh listing.
   perform public.create_listing(v_id, 'ICE', 12.50, 'KG', 'T-01', 'QA Provider', 60, v_owner);
@@ -22,10 +23,15 @@ begin
 
   if (v_first->>'listing_id')::uuid <> v_id then raise exception 'ASSERT_DB05_LISTING'; end if;
   if (v_first->>'claim_version')::uuid <> v_version1 then raise exception 'ASSERT_DB05_VERSION'; end if;
+  if v_first->>'poster_label' <> 'QA Provider' then raise exception 'ASSERT_RECEIPT_PROVIDER'; end if;
+  if v_first->>'claimant_label' <> 'QA Claimant A' then raise exception 'ASSERT_RECEIPT_CLAIMANT'; end if;
+  if v_first->>'item_type' <> 'ICE' then raise exception 'ASSERT_RECEIPT_ITEM'; end if;
+  if (v_first->>'quantity_value')::numeric <> 12.50 then raise exception 'ASSERT_RECEIPT_QUANTITY'; end if;
+  if v_first->>'quantity_unit' <> 'KG' then raise exception 'ASSERT_RECEIPT_UNIT'; end if;
   if (v_first->>'claim_expires_at')::timestamptz > (v_first->>'expires_at')::timestamptz then raise exception 'ASSERT_HOLD_CAP'; end if;
   if (v_first->>'claim_expires_at')::timestamptz > (v_first->>'claimed_at')::timestamptz + interval '15 minutes' then raise exception 'ASSERT_HOLD_MAX'; end if;
 
-  -- DB-07: identical retry returns identical hold timestamps.
+  -- DB-07: identical retry returns identical authoritative hold timestamps.
   v_retry := public.claim_listing(v_id, 'QA Claimant A', v_version1, v_claim1);
   if v_retry->>'claimed_at' <> v_first->>'claimed_at' then raise exception 'ASSERT_RETRY_CLAIMED_AT'; end if;
   if v_retry->>'claim_expires_at' <> v_first->>'claim_expires_at' then raise exception 'ASSERT_RETRY_EXTENDED_HOLD'; end if;
@@ -54,24 +60,22 @@ begin
     raise exception 'ASSERT_RELEASE_ACTIVE';
   end if;
 
-  -- DB-19: a stale stored claim becomes effectively ACTIVE without a write.
+  -- DB-19: a stale stored claim becomes effectively ACTIVE without a write/cron.
   update public.listings
      set stored_status='CLAIMED', claimant_label='QA Claimant B', claimed_at=v_now-interval '20 minutes',
          claim_expires_at=v_now-interval '5 minutes', claim_version=v_version2,
          expires_at=v_now+interval '30 minutes'
    where id=v_id;
+  select expires_at into v_expiry from public.listings where id=v_id;
   if private.effective_status((select l from public.listings l where id=v_id), v_now) <> 'ACTIVE' then
     raise exception 'ASSERT_NOSHOW_REOPENS';
   end if;
 
-  -- DB-20 / boundary: spoil wins even if the stale hold would otherwise reopen.
-  -- Keep expires_at > created_at so the structural invariant remains valid.
-  update public.listings
-     set created_at=v_now-interval '2 hours', expires_at=v_now-interval '1 second'
-   where id=v_id;
-  if private.effective_status((select l from public.listings l where id=v_id), v_now) <> 'EXPIRED' then
+  -- DB-20: spoil wins when evaluating the same stale claim after its spoil deadline.
+  if private.effective_status((select l from public.listings l where id=v_id), v_expiry + interval '1 second') <> 'EXPIRED' then
     raise exception 'ASSERT_SPOIL_WINS';
   end if;
 end $$;
 
+select 'PASS' as state_machine_tests;
 rollback;
