@@ -9,6 +9,7 @@ import {
   getOwnedListing,
   ownerReleaseClaim,
   releaseClaim,
+  verifyPickupCode,
   JettyError,
 } from '@/lib/api'
 import { validateCrewLabel } from '@/lib/identity'
@@ -67,6 +68,8 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
   const [editingProfile, setEditingProfile] = useState(false)
   const [profileLabel, setProfileLabel] = useState(() => getProfile()?.crewLabel ?? '')
   const [profileDraft, setProfileDraft] = useState(() => getProfile()?.crewLabel ?? '')
+  const [pickupInputs, setPickupInputs] = useState<Record<string, string>>({})
+  const [verifiedPickupKeys, setVerifiedPickupKeys] = useState<Set<string>>(() => new Set())
   const lastPostData = useRef<Map<string, any>>(new Map())
   const lastClaimData = useRef<Map<string, any>>(new Map())
 
@@ -343,6 +346,17 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
     try {
       await ownerReleaseClaim(post.id, version, post.ownerToken)
       markUncertain(key, false)
+      const verificationKey = `${post.id}:${version}`
+      setVerifiedPickupKeys((current) => {
+        const next = new Set(current)
+        next.delete(verificationKey)
+        return next
+      })
+      setPickupInputs((current) => {
+        const next = { ...current }
+        delete next[verificationKey]
+        return next
+      })
       setNotice('Claim released by provider.')
       await onChanged()
     } catch (error) {
@@ -358,22 +372,82 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
     }
   }
 
+  function updatePickupInput(verificationKey: string, value: string) {
+    const digits = value.replace(/\D/g, '').slice(0, 4)
+    setPickupInputs((current) => ({ ...current, [verificationKey]: digits }))
+    setVerifiedPickupKeys((current) => {
+      if (!current.has(verificationKey)) return current
+      const next = new Set(current)
+      next.delete(verificationKey)
+      return next
+    })
+  }
+
+  async function verifyPickup(post: ManagedPost) {
+    const version = post.data?.claim_version
+    if (!version) return
+    const verificationKey = `${post.id}:${version}`
+    const pickupCode = pickupInputs[verificationKey] ?? ''
+    if (!/^[0-9]{4}$/.test(pickupCode)) {
+      setNotice('Enter the claimant’s four-digit pickup code.')
+      return
+    }
+    const key = `post:${post.id}`
+    setBusyKey(`${key}:verify`)
+    setNotice('')
+    try {
+      await verifyPickupCode(post.id, version, post.ownerToken, pickupCode)
+      setVerifiedPickupKeys((current) => new Set(current).add(verificationKey))
+      setNotice(`Collector verified — ${post.data?.claimant_label || 'the current claimant'} controls this reservation.`)
+    } catch (error) {
+      if (error instanceof JettyError && error.code === 'PICKUP_CODE_INVALID') {
+        setNotice('Pickup code does not match the current reservation. Ask the claimant to check the code on their device.')
+      } else if (error instanceof JettyError && error.code !== 'NETWORK') {
+        setNotice(`Could not verify pickup: ${error.code}. Checking the latest authoritative state.`)
+        await reconcile()
+      } else {
+        markUncertain(key, true)
+        setNotice('CHECKING STATUS — pickup verification could not be confirmed because the connection is uncertain.')
+      }
+    } finally {
+      setBusyKey('')
+    }
+  }
+
   async function collect(post: ManagedPost) {
     const version = post.data?.claim_version
     if (!version) return
+    const verificationKey = `${post.id}:${version}`
+    const pickupCode = pickupInputs[verificationKey] ?? ''
+    if (!verifiedPickupKeys.has(verificationKey) || !/^[0-9]{4}$/.test(pickupCode)) {
+      setNotice('Verify the claimant’s pickup code before confirming collection.')
+      return
+    }
     if (!window.confirm(`Confirm physical collection by ${post.data?.claimant_label || 'the current claimant'}? This marks the listing COLLECTED and cannot be undone.`)) return
     const key = `post:${post.id}`
     setBusyKey(key)
     setNotice('')
     try {
-      await confirmCollected(post.id, version, post.ownerToken)
+      await confirmCollected(post.id, version, post.ownerToken, pickupCode)
       removeOwnedListing(post.id)
       lastPostData.current.delete(post.id)
       markUncertain(key, false)
+      setVerifiedPickupKeys((current) => {
+        const next = new Set(current)
+        next.delete(verificationKey)
+        return next
+      })
       setNotice('Collection confirmed.')
       await onChanged()
     } catch (error) {
-      if (error instanceof JettyError && error.code !== 'NETWORK') {
+      if (error instanceof JettyError && error.code === 'PICKUP_CODE_INVALID') {
+        setVerifiedPickupKeys((current) => {
+          const next = new Set(current)
+          next.delete(verificationKey)
+          return next
+        })
+        setNotice('Pickup verification is no longer valid for this reservation. Check the current claim and verify again.')
+      } else if (error instanceof JettyError && error.code !== 'NETWORK') {
         setNotice(`Could not confirm: ${error.code}. Checking the latest authoritative state before enabling another action.`)
       } else {
         markUncertain(key, true)
@@ -414,6 +488,9 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
             const claimEndsAt = post.data?.claim_expires_at ? new Date(post.data.claim_expires_at).getTime() : null
             const holdEndingSoon = post.data?.effective_status === 'CLAIMED' && claimEndsAt && claimEndsAt > nowMs && claimEndsAt - nowMs <= 2 * 60_000
             const holdLive = post.data?.effective_status === 'CLAIMED' && claimEndsAt && claimEndsAt > nowMs
+            const verificationKey = `${post.id}:${post.data?.claim_version ?? ''}`
+            const pickupCode = pickupInputs[verificationKey] ?? ''
+            const pickupVerified = verifiedPickupKeys.has(verificationKey)
             return <article className="managed-card" key={post.id}>
               {post.error === 'PENDING_CREATE' && post.createPayload ? <>
                 <div className="managed-top"><strong>{post.createPayload.itemType} · {post.createPayload.quantityValue} {post.createPayload.quantityUnit}</strong><span className="status status-warning">UNCERTAIN</span></div>
@@ -432,8 +509,28 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
                   </div>
                   <p className="confirm-before">Confirm before {absoluteTime(post.data.claim_expires_at)}</p>
                   {uncertain && <div className="banner warning compact-banner">CHECKING STATUS — management actions are disabled until the latest state is known.</div>}
+                  <div className="stack" aria-label="Pickup verification">
+                    <label>Pickup code
+                      <input
+                        aria-label={`Pickup code for berth ${post.data.berth}`}
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        maxLength={4}
+                        value={pickupCode}
+                        disabled={uncertain || !holdLive || busyKey === `${key}:verify`}
+                        onChange={(event)=>updatePickupInput(verificationKey, event.target.value)}
+                        placeholder="4 digits"
+                      />
+                    </label>
+                    <button
+                      className="button"
+                      disabled={uncertain || !holdLive || pickupCode.length !== 4 || busyKey === `${key}:verify`}
+                      onClick={()=>void verifyPickup(post)}
+                    >{busyKey === `${key}:verify` ? 'Verifying…' : pickupVerified ? 'Verified ✓' : 'Verify pickup code'}</button>
+                    {pickupVerified && <div className="banner compact-banner" role="status">Collector verified — safe to hand over this reservation.</div>}
+                  </div>
                   <div className="action-grid">
-                    <button className="button button-primary" disabled={busyKey === key || uncertain || !holdLive} onClick={()=>void collect(post)}>{holdLive ? 'Confirm collected' : 'Reservation ended'}</button>
+                    <button className="button button-primary" disabled={busyKey === key || uncertain || !holdLive || !pickupVerified} onClick={()=>void collect(post)}>{holdLive ? 'Confirm collected' : 'Reservation ended'}</button>
                     <button className="button" disabled={busyKey === key || uncertain || !holdLive} onClick={()=>void releaseAsOwner(post)}>Release claim</button>
                   </div>
                 </>}
@@ -461,6 +558,11 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
               </> : claim.error && !networkStale ? <p>Latest status: {claim.error}</p> : <>
                 <div className="managed-top"><strong>{claim.data.item_type} · {Number(claim.data.quantity_value)} {claim.data.quantity_unit}</strong><span className={`status${networkStale ? ' status-warning' : ''}`}>{networkStale ? 'CHECKING' : claim.data.effective_status}</span></div>
                 <p className="berth compact-berth">BERTH {claim.data.berth}</p>
+                {claim.data.effective_status === 'CLAIMED' && claim.data.pickup_code && <div className="receipt-guidance" aria-label="Pickup verification code">
+                  <p className="fact-label">PICKUP CODE</p>
+                  <p className="quantity">{claim.data.pickup_code}</p>
+                  <p className="muted">Show or tell this code to the supplying crew at pickup.</p>
+                </div>}
                 {claim.data.effective_status === 'CLAIMED' && <div className="deadline-grid">
                   <Deadline label="HOLD ENDS" value={claim.data.claim_expires_at} nowMs={nowMs} />
                   <Deadline label="SPOILS" value={claim.data.expires_at} nowMs={nowMs} />

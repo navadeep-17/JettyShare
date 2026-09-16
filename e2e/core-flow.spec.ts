@@ -88,14 +88,23 @@ test.describe('JettyShare DEV mobile release gates', () => {
     await expect(claimant.locator('.supply-card', { hasText: `BERTH ${berth}` })).toBeVisible()
 
     await claimant.locator('.supply-card', { hasText: `BERTH ${berth}` }).getByRole('button', { name: /Claim/ }).click()
-    await expect(claimant.getByRole('dialog', { name: 'Supply claimed' })).toBeVisible()
-    await claimant.getByRole('button', { name: 'Done — back to board', exact: true }).click()
+    const secondReceipt = claimant.getByRole('dialog', { name: 'Supply claimed' })
+    await expect(secondReceipt).toBeVisible()
+    const pickupCode = (await secondReceipt.locator('[aria-label="Pickup verification code"] .quantity').textContent())?.trim() ?? ''
+    expect(pickupCode).toMatch(/^\d{4}$/)
+    await secondReceipt.getByRole('button', { name: 'Done — back to board', exact: true }).click()
 
     await provider.getByRole('button', { name: 'Activity', exact: true }).click()
     const managedPost = provider.locator('.managed-card', { hasText: `BERTH ${berth}` })
     await expect(managedPost.getByText(`Claimed by ${claimantLabel}`)).toBeVisible()
+    const confirm = managedPost.getByRole('button', { name: 'Confirm collected', exact: true })
+    await expect(confirm).toBeDisabled()
+    await managedPost.getByLabel(`Pickup code for berth ${berth}`).fill(pickupCode)
+    await managedPost.getByRole('button', { name: 'Verify pickup code', exact: true }).click()
+    await expect(managedPost.getByText(/Collector verified — safe to hand over/i)).toBeVisible()
+    await expect(confirm).toBeEnabled()
     provider.once('dialog', (dialog) => dialog.accept())
-    await managedPost.getByRole('button', { name: 'Confirm collected', exact: true }).click()
+    await confirm.click()
     await provider.getByRole('button', { name: 'Close', exact: true }).click()
 
     await expect(provider.locator('.supply-card', { hasText: `BERTH ${berth}` })).toHaveCount(0)

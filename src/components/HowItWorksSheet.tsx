@@ -23,13 +23,13 @@ export function HowItWorksSheet({ onClose }: { onClose: () => void }) {
         </li>
         <li>
           <span className="how-step-number" aria-hidden="true">3</span>
-          <div><strong>Pick up & confirm</strong><span>Meet at the berth, release if plans change, and confirm collection.</span></div>
+          <div><strong>Verify & hand over</strong><span>The claimant shows their four-digit pickup code. The provider verifies that current reservation before confirming collection.</span></div>
         </li>
       </ol>
 
       <div className="scope-note">
         <strong>Deliberately lightweight</strong>
-        <span>No accounts · No payments · No chat · Just fast harbor handoffs.</span>
+        <span>No accounts · No OTPs · No payments · No chat · Just a claim-bound pickup proof.</span>
       </div>
 
       <button className="button button-primary how-done" onClick={onClose}>Got it</button>

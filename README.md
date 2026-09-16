@@ -12,7 +12,7 @@ At a small harbor, morning boats often return with ice or bait that will spoil w
 
 ## Core flow
 
-`Post surplus → urgency-sorted live board → atomic claim → pickup / release / no-show recovery / collection`
+`Post surplus → urgency-sorted live board → atomic claim → claim-bound pickup verification → collection / release / no-show recovery`
 
 ### Features
 
@@ -22,13 +22,22 @@ At a small harbor, morning boats often return with ice or bait that will spoil w
 - Literal one-tap claim after a one-time local boat/crew label
 - Atomic database claim so simultaneous claimers cannot both win
 - Large pickup berth receipt with separate hold and spoil deadlines
+- Four-digit pickup code bound to the current claim capability
+- Provider-side pickup verification before terminal collection
 - 15-minute claim hold, capped by the supply spoil deadline
 - Automatic no-show reavailability while the supply is still fresh
 - Claimant voluntary release and provider release
-- Provider-only collection confirmation
-- Device-local **My Activity** for posts, claims, and uncertain slow-network recovery
+- Device-local **My Activity** for posts, claims, pickup-code recovery, and uncertain slow-network recovery
 - Copyable text summary for WhatsApp/local messaging groups
 - Realtime invalidation plus authoritative refetch and 60-second reconciliation safety net
+
+## Trust model
+
+A boat/crew label is deliberately **not verified identity**. It is a local coordination label so crews know what to call each other. Protected record actions instead use random device-held capability tokens, with only SHA-256 digests stored in PostgreSQL.
+
+Pickup Verification connects that digital authority to the physical handoff. Each current claim exposes a four-digit code only to the claimant session that controls the claim capability. At the berth, the provider enters that code using the provider's owner capability. Verification proves that the person present can access the browser/session controlling the **current claim generation**; it does not verify a legal identity, phone number, vessel registration, or ownership of the crew label.
+
+`confirm_collected` checks the pickup code again in PostgreSQL, so the UI cannot bypass the handoff proof. Release, no-show, expiry, or a newer claim generation makes the old claim proof unusable.
 
 ## Architecture
 
@@ -39,7 +48,7 @@ Mobile browser
 Next.js / TypeScript
    │
    ├── local crew label + capability secrets
-   ├── Quick Post / Live Board / Claim / Activity
+   ├── Quick Post / Live Board / Claim / Activity / Pickup Verification
    └── Supabase Realtime invalidation
    │
    ▼
@@ -50,7 +59,7 @@ Supabase PostgreSQL
    └── private SHA-256 capability digests
 ```
 
-The browser never receives a service-role key. Direct anonymous table writes are denied. The browser calls only the narrow `api` RPC surface; guarded private implementations validate capability tokens, expected claim versions, and authoritative database time before protected state transitions.
+The browser never receives a service-role key. Direct anonymous table writes are denied. The browser calls only the narrow `api` RPC surface; guarded private implementations validate capability tokens, expected claim versions, pickup proof where required, and authoritative database time before protected state transitions.
 
 ## State model
 
@@ -66,11 +75,24 @@ ACTIVE → CLAIMED → COLLECTED
 
 ## Race-condition handling
 
-`claim_listing` locks the target row and decides the winner inside one PostgreSQL transaction. If a valid hold already exists, later claimers receive `CLAIM_UNAVAILABLE`. Every claim generation also carries a UUID `claim_version`; stale claimant/provider screens cannot release or collect a newer claim.
+`claim_listing` locks the target row and decides the winner inside one PostgreSQL transaction. If a valid hold already exists, later claimers receive `CLAIM_UNAVAILABLE`. Every claim generation also carries a UUID `claim_version`; stale claimant/provider screens cannot release, verify, or collect a newer claim.
+
+## Pickup verification
+
+The four-digit pickup code is derived from the SHA-256 digest of the current random claim capability rather than stored as another database secret. Claim-authorized responses can return it to the claimant; the public board and provider read model cannot.
+
+The provider's verification RPC requires all of the following at once:
+
+- the original provider's owner capability,
+- the exact current `claim_version`,
+- a live claim hold on an unexpired listing,
+- the matching four-digit pickup code.
+
+A successful verification enables the provider's collection action, but PostgreSQL validates the same code again inside `confirm_collected` before the terminal `COLLECTED` transition.
 
 ## Slow-3G / uncertain requests
 
-Create and claim IDs/capabilities are persisted in local storage **before** the network request. If the response is lost, retries reuse the same identifiers rather than creating a duplicate. My Activity can reconcile or retry the exact saved attempt.
+Create and claim IDs/capabilities are persisted in local storage **before** the network request. If the response is lost, retries reuse the same identifiers rather than creating a duplicate. My Activity can reconcile or retry the exact saved attempt. Network uncertainty during pickup verification does not discard either party's capability.
 
 ## No-show handling
 
@@ -95,7 +117,7 @@ When that deadline passes, the same listing becomes visible again if it is still
 
 The reproducible database contract is versioned in `supabase/migrations/`.
 
-It includes the schema, constraints, indexes, capability tables, lifecycle functions, explicit `api`/`private` Data API boundary, and sanitized Realtime board invalidation. Production is promoted only through committed forward migrations; fake/demo seed data is never part of the production release path.
+It includes the schema, constraints, indexes, capability tables, lifecycle functions, explicit `api`/`private` Data API boundary, sanitized Realtime board invalidation, and Pickup Verification v1.1. Migrations `008_pickup_verification_bridge.sql` and `009_finalize_pickup_verification.sql` add the claim-bound pickup proof using a zero-downtime bridge before removing the legacy collection RPC. Production is promoted only through committed forward migrations; fake/demo seed data is never part of the production release path.
 
 ## Environment contract
 
@@ -140,7 +162,7 @@ GitHub Actions validates clean install, production dependency audit, release/sec
 
 ## Deliberate trade-offs
 
-JettyShare intentionally does **not** include email/password accounts, OTPs, maps/GPS, chat, payments, ratings, image uploads, or push notifications. For a 30-boat harbor these would add bandwidth, setup friction, and failure modes without improving the core physical handoff. Berth numbers plus existing local messaging groups are enough for v1.
+JettyShare intentionally does **not** include email/password accounts, phone verification, OTPs, maps/GPS, chat, payments, ratings, image uploads, or push notifications. For a 30-boat harbor these would add bandwidth, setup friction, and failure modes without improving the core physical handoff. The four-digit pickup proof verifies possession of the current claim session at handover without turning JettyShare into an identity platform.
 
 ## Tech stack
 

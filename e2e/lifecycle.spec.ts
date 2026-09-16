@@ -68,6 +68,7 @@ function managedClaim(overrides: Record<string, unknown> = {}) {
     claim_expires_at: new Date(now + 10 * 60_000).toISOString(),
     expires_at: new Date(now + 30 * 60_000).toISOString(),
     server_now: new Date(now).toISOString(),
+    pickup_code: '2468',
     ...overrides,
   }
 }
@@ -188,8 +189,13 @@ test.describe('Component 06 lifecycle and management release gates', () => {
         : managedPost()
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(data) })
     })
+    await page.route('**/rest/v1/rpc/verify_pickup_code', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ verified: true, claimant_label: 'QA Lifecycle Claimant', claim_version: CLAIM_VERSION, server_now: new Date().toISOString() }) })
+    })
     await page.route('**/rest/v1/rpc/confirm_collected', async (route) => {
       confirmCalls += 1
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      expect(body.p_pickup_code).toBe('2468')
       collected = true
       await route.abort('failed')
     })
@@ -198,8 +204,13 @@ test.describe('Component 06 lifecycle and management release gates', () => {
     await page.getByRole('button', { name: 'Activity', exact: true }).click()
     const card = page.locator('.managed-card', { hasText: 'BERTH LIFE-1' })
     await expect(card).toBeVisible()
+    const confirm = card.getByRole('button', { name: 'Confirm collected', exact: true })
+    await expect(confirm).toBeDisabled()
+    await card.getByLabel('Pickup code for berth LIFE-1').fill('2468')
+    await card.getByRole('button', { name: 'Verify pickup code', exact: true }).click()
+    await expect(confirm).toBeEnabled()
     page.once('dialog', (dialog) => dialog.accept())
-    await card.getByRole('button', { name: 'Confirm collected', exact: true }).click()
+    await confirm.click()
 
     await expect(card.getByText('COLLECTED', { exact: true })).toBeVisible()
     await expect(card.getByText('Collected.', { exact: true })).toBeVisible()
@@ -236,11 +247,24 @@ test.describe('Component 06 lifecycle and management release gates', () => {
     await expect(card.getByText('SPOILS', { exact: true })).toBeVisible()
     await expect(card.getByText(/^Confirm before /)).toBeVisible()
     const confirm = card.getByRole('button', { name: 'Confirm collected', exact: true })
+    const verify = card.getByRole('button', { name: 'Verify pickup code', exact: true })
     const release = card.getByRole('button', { name: 'Release claim', exact: true })
-    await expect(confirm).toBeEnabled()
+    await expect(confirm).toBeDisabled()
+    await expect(verify).toBeDisabled()
     await expect(release).toBeEnabled()
-    const sizes = await Promise.all([confirm, release].map((button) => button.boundingBox()))
-    for (const box of sizes) expect(box && box.height >= 44).toBeTruthy()
+    await card.getByLabel('Pickup code for berth LIFE-1').fill('2468')
+    await expect(verify).toBeEnabled()
+    const beforeVerificationSizes = await Promise.all([verify, release].map((button) => button.boundingBox()))
+    for (const box of beforeVerificationSizes) expect(box && box.height >= 44).toBeTruthy()
+    await page.route('**/rest/v1/rpc/verify_pickup_code', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ verified: true, claimant_label: 'QA Lifecycle Claimant', claim_version: CLAIM_VERSION, server_now: new Date().toISOString() }) })
+    })
+    await verify.click()
+    await expect(confirm).toBeEnabled()
+    const verified = card.getByRole('button', { name: 'Verified ✓', exact: true })
+    await expect(verified).toBeVisible()
+    const afterVerificationSizes = await Promise.all([confirm, verified, release].map((button) => button.boundingBox()))
+    for (const box of afterVerificationSizes) expect(box && box.height >= 44).toBeTruthy()
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)
     expect(overflow).toBe(false)
     await context.close()
@@ -265,7 +289,9 @@ test.describe('Component 06 lifecycle and management release gates', () => {
     await page.goto('/')
     await page.getByRole('button', { name: 'Activity', exact: true }).click()
     const card = page.locator('.managed-card', { hasText: 'BERTH LIFE-1' })
-    await expect(card.getByRole('button', { name: 'Confirm collected', exact: true })).toBeEnabled()
+    await expect(card.getByRole('button', { name: 'Confirm collected', exact: true })).toBeDisabled()
+    await expect(card.getByRole('button', { name: 'Release claim', exact: true })).toBeEnabled()
+    await expect(card.getByLabel('Pickup code for berth LIFE-1')).toBeEnabled()
 
     const readsBeforeFocus = reads
     ended = true

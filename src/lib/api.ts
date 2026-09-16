@@ -4,7 +4,7 @@ import type { BoardSnapshot, ClaimReceipt, CreateListingInput, ManagedClaimRecei
 export type JettyErrorCode =
   | 'INVALID_INPUT' | 'NOT_FOUND' | 'ITEM_EXPIRED' | 'CLAIM_UNAVAILABLE'
   | 'CLAIM_HOLD_EXPIRED' | 'STALE_CLAIM_VERSION' | 'CAPABILITY_INVALID'
-  | 'ALREADY_COLLECTED' | 'CONFLICT' | 'NETWORK'
+  | 'PICKUP_CODE_INVALID' | 'ALREADY_COLLECTED' | 'CONFLICT' | 'NETWORK'
 
 export class JettyError extends Error {
   constructor(public code: JettyErrorCode, message?: string) { super(message ?? code) }
@@ -12,6 +12,7 @@ export class JettyError extends Error {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const CAPABILITY_RE = /^[A-Za-z0-9_-]{43}$/
+const PICKUP_CODE_RE = /^[0-9]{4}$/
 const api = supabase.schema('api')
 
 function requireClaimSecret(listingId: string, claimVersion: string, claimToken: string): void {
@@ -20,9 +21,15 @@ function requireClaimSecret(listingId: string, claimVersion: string, claimToken:
   }
 }
 
+function requirePickupCode(pickupCode: string): void {
+  if (!PICKUP_CODE_RE.test(pickupCode)) {
+    throw new JettyError('PICKUP_CODE_INVALID', 'Pickup code must be four digits')
+  }
+}
+
 function mapRpcError(error: { message?: string } | null): never {
   const message = error?.message ?? ''
-  const codes: JettyErrorCode[] = ['INVALID_INPUT','NOT_FOUND','ITEM_EXPIRED','CLAIM_UNAVAILABLE','CLAIM_HOLD_EXPIRED','STALE_CLAIM_VERSION','CAPABILITY_INVALID','ALREADY_COLLECTED','CONFLICT']
+  const codes: JettyErrorCode[] = ['INVALID_INPUT','NOT_FOUND','ITEM_EXPIRED','CLAIM_UNAVAILABLE','CLAIM_HOLD_EXPIRED','STALE_CLAIM_VERSION','CAPABILITY_INVALID','PICKUP_CODE_INVALID','ALREADY_COLLECTED','CONFLICT']
   const code = codes.find((candidate) => message.includes(candidate))
   throw new JettyError(code ?? 'NETWORK', message)
 }
@@ -73,8 +80,26 @@ export async function ownerReleaseClaim(listingId: string, expectedClaimVersion:
   return data
 }
 
-export async function confirmCollected(listingId: string, expectedClaimVersion: string, ownerToken: string) {
-  const { data, error } = await api.rpc('confirm_collected', { p_listing_id: listingId, p_expected_claim_version: expectedClaimVersion, p_owner_token: ownerToken })
+export async function verifyPickupCode(listingId: string, expectedClaimVersion: string, ownerToken: string, pickupCode: string) {
+  requirePickupCode(pickupCode)
+  const { data, error } = await api.rpc('verify_pickup_code', {
+    p_listing_id: listingId,
+    p_expected_claim_version: expectedClaimVersion,
+    p_owner_token: ownerToken,
+    p_pickup_code: pickupCode,
+  })
+  if (error) mapRpcError(error)
+  return data
+}
+
+export async function confirmCollected(listingId: string, expectedClaimVersion: string, ownerToken: string, pickupCode: string) {
+  requirePickupCode(pickupCode)
+  const { data, error } = await api.rpc('confirm_collected', {
+    p_listing_id: listingId,
+    p_expected_claim_version: expectedClaimVersion,
+    p_owner_token: ownerToken,
+    p_pickup_code: pickupCode,
+  })
   if (error) mapRpcError(error)
   return data
 }
