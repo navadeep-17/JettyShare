@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { claimListing, getClaimReceipt, JettyError } from '@/lib/api'
 import { newClaimVersion, randomCapability } from '@/lib/capabilities'
 import { getClaims, getOwnedListings, getProfile, removeClaim, setClaim, storageAvailable } from '@/lib/storage'
@@ -38,6 +38,7 @@ export function JettyShareApp() {
   const [copyFallback, setCopyFallback] = useState<{ text: string; lastKnown: boolean } | null>(null)
   const [lastKnownOffer, setLastKnownOffer] = useState<string | null>(null)
   const [copyBusy, setCopyBusy] = useState(false)
+  const copyBusyRef = useRef(false)
   const [notice, setNotice] = useState('')
   const [online, setOnline] = useState(() => typeof navigator === 'undefined' ? true : navigator.onLine)
 
@@ -256,7 +257,11 @@ export function JettyShareApp() {
   }
 
   async function copySummary() {
-    if (copyBusy) return
+    // State alone cannot close the same-tick double-tap window because two click
+    // handlers may run before React commits the disabled state. This ref is the
+    // synchronous attempt lock; state remains the visible pending indicator.
+    if (copyBusyRef.current) return
+    copyBusyRef.current = true
     setCopyBusy(true)
     setLastKnownOffer(null)
     try {
@@ -291,6 +296,7 @@ export function JettyShareApp() {
         setCopyFallback({ text, lastKnown: false })
       }
     } finally {
+      copyBusyRef.current = false
       setCopyBusy(false)
     }
   }
