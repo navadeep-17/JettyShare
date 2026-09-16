@@ -4,7 +4,7 @@
 
 ## Live prototype
 
-**https://jettyshare-navadeep-17s-projects.vercel.app**
+**https://jettyshare.vercel.app**
 
 ## Why this exists
 
@@ -21,7 +21,7 @@ At a small harbor, morning boats often return with ice or bait that will spoil w
 - Ice/Bait filters without changing the authoritative board ordering
 - Literal one-tap claim after a one-time local boat/crew label
 - Atomic database claim so simultaneous claimers cannot both win
-- Large pickup berth receipt and spoil countdown
+- Large pickup berth receipt with separate hold and spoil deadlines
 - 15-minute claim hold, capped by the supply spoil deadline
 - Automatic no-show reavailability while the supply is still fresh
 - Claimant voluntary release and provider release
@@ -44,13 +44,13 @@ Next.js / TypeScript
    │
    ▼
 Supabase PostgreSQL
-   ├── guarded RPC boundary
-   ├── private business implementations
-   ├── listings state machine
-   └── SHA-256 capability digests
+   ├── exposed api.* RPC wrappers
+   ├── private.* guarded business implementations
+   ├── public listings state machine
+   └── private SHA-256 capability digests
 ```
 
-The browser never receives a service-role key. Direct anonymous table writes are denied. Browser-callable RPCs validate capability tokens and authoritative database time before protected state transitions.
+The browser never receives a service-role key. Direct anonymous table writes are denied. The browser calls only the narrow `api` RPC surface; guarded private implementations validate capability tokens, expected claim versions, and authoritative database time before protected state transitions.
 
 ## State model
 
@@ -89,15 +89,13 @@ When that deadline passes, the same listing becomes visible again if it is still
 - high contrast, explicit text labels, no state encoded by color alone
 - 44–48px+ touch targets
 - no maps, images, animation frameworks, or other heavy media
-- local countdown rendering; no per-second network polling
+- local countdown rendering from a server-adjusted clock; no per-second network polling
 
 ## Database
 
-The canonical reproducible schema is in:
+The reproducible database contract is versioned in `supabase/migrations/`.
 
-`supabase/migrations/001_core_schema_and_rpcs.sql`
-
-It includes schema, constraints, indexes, capability tables, lifecycle RPCs, the public/private security boundary, and sanitized Realtime board invalidation.
+It includes the schema, constraints, indexes, capability tables, lifecycle functions, explicit `api`/`private` Data API boundary, and sanitized Realtime board invalidation. Production is promoted only through committed forward migrations; fake/demo seed data is never part of the production release path.
 
 ## Environment contract
 
@@ -118,7 +116,7 @@ Environment mapping:
 - **Local / Vercel Preview:** DEV Supabase project
 - **Vercel Production:** PROD Supabase project
 - **Production branch:** `main`
-- **Production canonical URL:** `https://jettyshare-navadeep-17s-projects.vercel.app`
+- **Production canonical URL:** `https://jettyshare.vercel.app`
 
 Changing any `NEXT_PUBLIC_*` value requires a fresh build/deployment because Next.js inlines it into the browser bundle.
 
@@ -138,7 +136,7 @@ The app fails fast when either Supabase public variable is missing. That is inte
 
 ## Quality checks
 
-GitHub Actions validates clean install, production dependency audit, lint, typecheck, unit tests, production build, and release/security preflight checks on the hardening branch/PR and `main`. Browser QA exercises the mobile core flow, recovery behavior, accessibility/design gates, and isolated DEV database behavior before promotion.
+GitHub Actions validates clean install, production dependency audit, release/security preflight, lint, typecheck, unit tests, production build, database contract checks, and mobile browser QA before promotion. The Git-backed Vercel Preview is verified against its exact Git SHA and must point to the isolated DEV Supabase project before production cutover.
 
 ## Deliberate trade-offs
 
