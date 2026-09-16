@@ -6,6 +6,8 @@ import { supabase } from '@/lib/supabase'
 import { adjustedNow, serverClockOffset } from '@/lib/time'
 import type { BoardSnapshot } from '@/lib/types'
 
+const RETRY_DELAYS_MS = [5000, 15000, 30000] as const
+
 export function useLiveBoard() {
   const [snapshot, setSnapshot] = useState<BoardSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
@@ -14,12 +16,24 @@ export function useLiveBoard() {
   const [lastSuccessAt, setLastSuccessAt] = useState<number | null>(null)
   const [clockOffsetMs, setClockOffsetMs] = useState(0)
   const [clockNowMs, setClockNowMs] = useState(() => Date.now())
+  const [failureCount, setFailureCount] = useState(0)
   const generation = useRef(0)
   const hasSnapshot = useRef(false)
   const debounceTimer = useRef<number | null>(null)
+  const retryTimer = useRef<number | null>(null)
+
+  const clearRetryTimer = useCallback(() => {
+    if (retryTimer.current !== null) {
+      window.clearTimeout(retryTimer.current)
+      retryTimer.current = null
+    }
+  }, [])
 
   const refresh = useCallback(async (): Promise<BoardSnapshot | null> => {
+    clearRetryTimer()
     const mine = ++generation.current
+    if (!hasSnapshot.current) setLoading(true)
+
     try {
       const next = await getBoardSnapshot()
       if (mine !== generation.current) return null
@@ -32,16 +46,18 @@ export function useLiveBoard() {
       hasSnapshot.current = true
       setInitialError(false)
       setDegraded(false)
+      setFailureCount(0)
       return next
     } catch {
       if (mine !== generation.current) return null
+      setFailureCount((count) => count + 1)
       if (hasSnapshot.current) setDegraded(true)
       else setInitialError(true)
       return null
     } finally {
       if (mine === generation.current) setLoading(false)
     }
-  }, [])
+  }, [clearRetryTimer])
 
   const scheduleRefresh = useCallback(() => {
     if (debounceTimer.current) window.clearTimeout(debounceTimer.current)
@@ -49,6 +65,17 @@ export function useLiveBoard() {
   }, [refresh])
 
   useEffect(() => { void refresh() }, [refresh])
+
+  useEffect(() => {
+    if (failureCount < 1 || document.visibilityState !== 'visible') return
+    const delay = RETRY_DELAYS_MS[Math.min(failureCount - 1, RETRY_DELAYS_MS.length - 1)]
+    clearRetryTimer()
+    retryTimer.current = window.setTimeout(() => {
+      retryTimer.current = null
+      void refresh()
+    }, delay)
+    return clearRetryTimer
+  }, [failureCount, refresh, clearRetryTimer])
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -63,7 +90,7 @@ export function useLiveBoard() {
       .on('broadcast', { event: 'board_changed' }, scheduleRefresh)
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') void refresh()
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') setDegraded(true)
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') setDegraded(true)
       })
 
     return () => {
@@ -76,15 +103,22 @@ export function useLiveBoard() {
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') void refresh()
     }, 60000)
-    const onFocus = () => { if (document.visibilityState === 'visible') void refresh() }
-    window.addEventListener('focus', onFocus)
-    document.addEventListener('visibilitychange', onFocus)
+
+    const reconcile = () => {
+      if (document.visibilityState === 'visible') void refresh()
+      else clearRetryTimer()
+    }
+
+    window.addEventListener('focus', reconcile)
+    window.addEventListener('online', reconcile)
+    document.addEventListener('visibilitychange', reconcile)
     return () => {
       window.clearInterval(timer)
-      window.removeEventListener('focus', onFocus)
-      document.removeEventListener('visibilitychange', onFocus)
+      window.removeEventListener('focus', reconcile)
+      window.removeEventListener('online', reconcile)
+      document.removeEventListener('visibilitychange', reconcile)
     }
-  }, [refresh])
+  }, [refresh, clearRetryTimer])
 
   useEffect(() => {
     if (!snapshot?.next_transition_at) return
