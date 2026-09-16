@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useModalFocus } from '@/hooks/useModalFocus'
 import { Countdown } from './Countdown'
 import { adjustedNow, serverClockOffset } from '@/lib/time'
+import { getClaims, setClaim } from '@/lib/storage'
 import type { ClaimReceipt } from '@/lib/types'
 
 export function ClaimReceiptSheet({
@@ -21,6 +22,21 @@ export function ClaimReceiptSheet({
   const reconciled = useRef(false)
   const holdEnded = new Date(receipt.claim_expires_at).getTime() <= nowMs
   const itemExpired = new Date(receipt.expires_at).getTime() <= nowMs
+
+  useEffect(() => {
+    const saved = getClaims()[receipt.listing_id]
+    if (!saved || saved.claimVersion !== receipt.claim_version) return
+    setClaim(receipt.listing_id, {
+      ...saved,
+      snapshot: {
+        itemType: receipt.item_type,
+        quantityValue: Number(receipt.quantity_value),
+        quantityUnit: receipt.quantity_unit,
+        berth: receipt.berth,
+        posterLabel: receipt.poster_label,
+      },
+    })
+  }, [receipt])
 
   useEffect(() => {
     const timer = window.setInterval(() => setNowMs(adjustedNow(offset)), 1000)
