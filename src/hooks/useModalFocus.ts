@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 
 const focusableSelector = [
   'button:not([disabled])',
@@ -16,11 +16,11 @@ export function useModalFocus(onClose: () => void) {
   const closeRef = useRef(onClose)
   closeRef.current = onClose
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const root = ref.current
     const first = root?.querySelector<HTMLElement>(focusableSelector)
-    window.setTimeout(() => first?.focus(), 0)
+    first?.focus()
 
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
@@ -45,7 +45,7 @@ export function useModalFocus(onClose: () => void) {
     document.addEventListener('keydown', onKeyDown)
     return () => {
       document.removeEventListener('keydown', onKeyDown)
-      window.setTimeout(() => previous?.focus(), 0)
+      previous?.focus()
     }
   }, [])
 
