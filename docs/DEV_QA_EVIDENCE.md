@@ -31,6 +31,16 @@ The hardening migrations have **not** been promoted to PROD yet.
   - collected rows leave the active board.
 - Relative-time DEV fixtures prove urgency ordering, stale-hold reopening while fresh, and expired-row exclusion.
 
+## Vercel environment isolation evidence
+
+- Existing Vercel project: `jettyshare`.
+- Connected Git repository: `navadeep-17/JettyShare`.
+- Production branch tracking: `main` only.
+- Stable production domain: `https://jettyshare.vercel.app`.
+- Production environment variables are scoped separately from Preview/Development.
+- Preview and Development are configured for the DEV Supabase project; Production is configured for the PROD Supabase project.
+- Preview canonical URL remains intentionally unset until the first Git-backed Preview URL is created and verified.
+
 ## Remaining release work
 
-Preview must be wired to DEV and verified through `/diagnostics`, then browser/slow-network/Realtime/mobile/accessibility gates must pass. Only after those gates are green may the exact forward migrations be considered for PROD promotion.
+A Git-backed `hardening-spec-parity` Preview must be created and verified through `/diagnostics`, then the production-like Preview smoke/security checks must pass. Only after those gates are green may the exact forward migrations be considered for PROD promotion.
