@@ -8,6 +8,8 @@ import type { BoardSnapshot } from '@/lib/types'
 
 const RETRY_DELAYS_MS = [5000, 15000, 30000] as const
 
+type RefreshOptions = { coalesce?: boolean }
+
 export function useLiveBoard() {
   const [snapshot, setSnapshot] = useState<BoardSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
@@ -21,6 +23,9 @@ export function useLiveBoard() {
   const hasSnapshot = useRef(false)
   const debounceTimer = useRef<number | null>(null)
   const retryTimer = useRef<number | null>(null)
+  const requestsInFlight = useRef(0)
+  const backgroundRefreshQueued = useRef(false)
+  const queuedRefreshRunner = useRef<() => void>(() => undefined)
 
   const clearRetryTimer = useCallback(() => {
     if (retryTimer.current !== null) {
@@ -29,9 +34,21 @@ export function useLiveBoard() {
     }
   }, [])
 
-  const refresh = useCallback(async (): Promise<BoardSnapshot | null> => {
+  const refresh = useCallback(async (options: RefreshOptions = {}): Promise<BoardSnapshot | null> => {
+    // Realtime/focus/timer invalidations are hints, not separate sources of
+    // truth. If a request is already running, coalesce a burst of those hints
+    // into one follow-up read instead of repeatedly superseding a slow request.
+    // Explicit user/mutation refreshes still start immediately, so a newer
+    // authoritative read can overtake an older delayed response; generation
+    // guarding below prevents the old response from resurrecting stale state.
+    if (options.coalesce && requestsInFlight.current > 0) {
+      backgroundRefreshQueued.current = true
+      return null
+    }
+
     clearRetryTimer()
     const mine = ++generation.current
+    requestsInFlight.current += 1
     if (!hasSnapshot.current) setLoading(true)
 
     try {
@@ -55,13 +72,20 @@ export function useLiveBoard() {
       else setInitialError(true)
       return null
     } finally {
+      requestsInFlight.current = Math.max(0, requestsInFlight.current - 1)
       if (mine === generation.current) setLoading(false)
+      if (requestsInFlight.current === 0 && backgroundRefreshQueued.current) {
+        backgroundRefreshQueued.current = false
+        window.setTimeout(() => queuedRefreshRunner.current(), 0)
+      }
     }
   }, [clearRetryTimer])
 
+  queuedRefreshRunner.current = () => { void refresh({ coalesce: true }) }
+
   const scheduleRefresh = useCallback(() => {
     if (debounceTimer.current) window.clearTimeout(debounceTimer.current)
-    debounceTimer.current = window.setTimeout(() => void refresh(), 250)
+    debounceTimer.current = window.setTimeout(() => void refresh({ coalesce: true }), 250)
   }, [refresh])
 
   useEffect(() => { void refresh() }, [refresh])
@@ -72,7 +96,7 @@ export function useLiveBoard() {
     clearRetryTimer()
     retryTimer.current = window.setTimeout(() => {
       retryTimer.current = null
-      void refresh()
+      void refresh({ coalesce: true })
     }, delay)
     return clearRetryTimer
   }, [failureCount, refresh, clearRetryTimer])
@@ -89,7 +113,7 @@ export function useLiveBoard() {
       .channel('jettyshare:board', { config: { private: false } })
       .on('broadcast', { event: 'board_changed' }, scheduleRefresh)
       .subscribe((status) => {
-        if (status === 'SUBSCRIBED') void refresh()
+        if (status === 'SUBSCRIBED') void refresh({ coalesce: true })
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') setDegraded(true)
       })
 
@@ -101,11 +125,11 @@ export function useLiveBoard() {
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') void refresh()
+      if (document.visibilityState === 'visible') void refresh({ coalesce: true })
     }, 60000)
 
     const reconcile = () => {
-      if (document.visibilityState === 'visible') void refresh()
+      if (document.visibilityState === 'visible') void refresh({ coalesce: true })
       else clearRetryTimer()
     }
 
@@ -123,7 +147,7 @@ export function useLiveBoard() {
   useEffect(() => {
     if (!snapshot?.next_transition_at) return
     const delay = Math.max(100, new Date(snapshot.next_transition_at).getTime() - adjustedNow(clockOffsetMs) + 250)
-    const timer = window.setTimeout(() => void refresh(), Math.min(delay, 2147483647))
+    const timer = window.setTimeout(() => void refresh({ coalesce: true }), Math.min(delay, 2147483647))
     return () => window.clearTimeout(timer)
   }, [snapshot?.next_transition_at, clockOffsetMs, refresh])
 
