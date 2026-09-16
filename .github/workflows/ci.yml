@@ -14,6 +14,8 @@ jobs:
       NEXT_PUBLIC_CANONICAL_APP_URL: https://jettyshare-navadeep-17s-projects.vercel.app
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -21,6 +23,8 @@ jobs:
       - run: npm ci
       - name: Audit production dependencies for high/critical advisories
         run: npm audit --omit=dev --audit-level=high
+      - name: Release security preflight
+        run: npm run security:preflight
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
