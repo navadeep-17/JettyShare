@@ -52,9 +52,18 @@ export type CreateListingInput = {
 export type ClaimReceipt = {
   listing_id: string
   claim_version: string
+  item_type: ItemType
+  quantity_value: number
+  quantity_unit: QuantityUnit
   berth: string
+  poster_label: string
+  claimant_label: string
   claimed_at: string
   claim_expires_at: string
   expires_at: string
   server_now: string
+}
+
+export type ManagedClaimReceipt = ClaimReceipt & {
+  effective_status: 'ACTIVE' | 'CLAIMED' | 'COLLECTED' | 'EXPIRED'
 }
