@@ -25,13 +25,11 @@ async function postSupply(page: Page, crewLabel: string, berth: string, quantity
 }
 
 async function blockRealtime(page: Page) {
-  await page.addInitScript(() => {
-    Object.defineProperty(window, 'WebSocket', {
-      configurable: true,
-      value: function BlockedWebSocket() {
-        throw new Error('Realtime intentionally unavailable for JettyShare QA')
-      },
-    })
+  // Route only Supabase Realtime sockets. Unlike replacing window.WebSocket,
+  // this preserves normal application startup while simulating a disconnected
+  // broadcast channel. HTTP snapshot RPCs remain fully available.
+  await page.routeWebSocket('**/realtime/v1/websocket**', async (ws) => {
+    await ws.close({ code: 1001, reason: 'Realtime intentionally unavailable for JettyShare QA' })
   })
 }
 
