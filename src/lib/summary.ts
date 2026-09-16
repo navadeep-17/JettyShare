@@ -1,5 +1,17 @@
-import type { BoardSnapshot, QuantityUnit } from './types'
+import type { ActiveBoardItem, BoardSnapshot, QuantityUnit } from './types'
 import { copyRemaining, lastCheckedAge } from './time'
+
+export type SummaryInput = {
+  items: ActiveBoardItem[]
+  adjustedNowMs: number
+  canonicalBoardUrl: string
+}
+
+export type SummaryResult = {
+  text: string
+  includedCount: number
+  includedIds: string[]
+}
 
 function unitLabel(unit: QuantityUnit, quantity: number): string {
   if (unit === 'KG') return 'kg'
@@ -17,8 +29,8 @@ export function activeSummaryItems(snapshot: BoardSnapshot, nowMs: number) {
   return snapshot.items.filter((item) => new Date(item.expires_at).getTime() > nowMs)
 }
 
-function formatLines(snapshot: BoardSnapshot, nowMs: number, suffix = ''): string[] {
-  return activeSummaryItems(snapshot, nowMs).map((item, index) => {
+function formatLines(items: ActiveBoardItem[], nowMs: number, suffix = ''): string[] {
+  return items.map((item, index) => {
     const remainingMs = new Date(item.expires_at).getTime() - nowMs
     const urgent = remainingMs <= 15 * 60 * 1000 ? 'URGENT | ' : ''
     const quantity = Number(item.quantity_value)
@@ -26,9 +38,24 @@ function formatLines(snapshot: BoardSnapshot, nowMs: number, suffix = ''): strin
   })
 }
 
+export function formatActiveSupplySummary(input: SummaryInput): SummaryResult {
+  const included = input.items.filter((item) => new Date(item.expires_at).getTime() > input.adjustedNowMs)
+  if (!included.length) return { text: '', includedCount: 0, includedIds: [] }
+
+  const lines = formatLines(included, input.adjustedNowMs)
+  return {
+    text: `JETTYSHARE - SUPPLIES AVAILABLE NOW\n\n${lines.join('\n')}\n\nLive board: ${new URL('/', input.canonicalBoardUrl).toString()}\nAvailability changes quickly - check the live board before pickup.`,
+    includedCount: included.length,
+    includedIds: included.map((item) => item.id),
+  }
+}
+
 export function buildShareSummary(snapshot: BoardSnapshot, origin: string, nowMs: number): string {
-  const lines = formatLines(snapshot, nowMs)
-  return `JETTYSHARE - SUPPLIES AVAILABLE NOW\n\n${lines.join('\n')}\n\nLive board: ${canonicalBoardUrl(origin)}\nAvailability changes quickly - check the live board before pickup.`
+  return formatActiveSupplySummary({
+    items: snapshot.items,
+    adjustedNowMs: nowMs,
+    canonicalBoardUrl: canonicalBoardUrl(origin),
+  }).text
 }
 
 export function buildLastKnownSummary(
@@ -38,6 +65,8 @@ export function buildLastKnownSummary(
   nowMs: number,
 ): string {
   const snapshotNow = new Date(snapshot.server_now).getTime()
-  const lines = formatLines(snapshot, Number.isFinite(snapshotNow) ? snapshotNow : checkedAtMs, ' at last check')
+  const lastKnownNow = Number.isFinite(snapshotNow) ? snapshotNow : checkedAtMs
+  const included = snapshot.items.filter((item) => new Date(item.expires_at).getTime() > lastKnownNow)
+  const lines = formatLines(included, lastKnownNow, ' at last check')
   return `LAST KNOWN - JETTYSHARE SUPPLIES\nLast checked ${lastCheckedAge(checkedAtMs, nowMs)}\n\n${lines.length ? lines.join('\n') : 'No supplies were available at the last successful check.'}\n\nLive board: ${canonicalBoardUrl(origin)}\nThis copy may be outdated - check the live board before pickup.`
 }
