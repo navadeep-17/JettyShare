@@ -103,7 +103,7 @@ test.describe('JettyShare DEV mobile release gates', () => {
 
     // Keep one known supply available, then prove Copy All ignores the visual filter.
     await postSupply(provider, providerLabel, shareBerth, { item: 'BAIT', quantity: '3' })
-    await provider.getByRole('button', { name: 'ICE', exact: true }).click()
+    await provider.getByRole('button', { name: 'Ice', exact: true }).click()
     await expect(provider.locator('.supply-card', { hasText: `BERTH ${shareBerth}` })).toHaveCount(0)
     await provider.getByRole('button', { name: /Copy all available/i }).click()
     await expect(provider.getByText(/available supplies? copied\./i)).toBeVisible()
