@@ -44,13 +44,13 @@ Next.js / TypeScript
    │
    ▼
 Supabase PostgreSQL
-   ├── public RPC wrappers
-   ├── private guarded implementations
+   ├── guarded RPC boundary
+   ├── private business implementations
    ├── listings state machine
    └── SHA-256 capability digests
 ```
 
-The browser never receives a service-role key. Direct anonymous table writes are denied. Public RPC wrappers call private business functions that validate capability tokens and authoritative database time.
+The browser never receives a service-role key. Direct anonymous table writes are denied. Browser-callable RPCs validate capability tokens and authoritative database time before protected state transitions.
 
 ## State model
 
@@ -97,27 +97,48 @@ The canonical reproducible schema is in:
 
 `supabase/migrations/001_core_schema_and_rpcs.sql`
 
-It includes schema, constraints, indexes, capability tables, lifecycle RPCs, public/private security boundary, and realtime board invalidation.
+It includes schema, constraints, indexes, capability tables, lifecycle RPCs, the public/private security boundary, and sanitized Realtime board invalidation.
+
+## Environment contract
+
+JettyShare intentionally has **no checked-in Supabase fallback**. Every environment must provide its database target explicitly so a local or Preview build cannot silently talk to Production.
+
+Required browser-safe variables:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<publishable-key>
+NEXT_PUBLIC_CANONICAL_APP_URL=http://localhost:3000
+```
+
+Only the project URL, publishable key, and canonical public origin belong in `NEXT_PUBLIC_*`. Never place a Supabase secret/service-role key, database password, owner capability, or claim capability in the repository or client environment.
+
+Environment mapping:
+
+- **Local / Vercel Preview:** DEV Supabase project
+- **Vercel Production:** PROD Supabase project
+- **Production branch:** `main`
+- **Production canonical URL:** `https://jettyshare-navadeep-17s-projects.vercel.app`
+
+Changing any `NEXT_PUBLIC_*` value requires a fresh build/deployment because Next.js inlines it into the browser bundle.
 
 ## Local setup
 
+1. Copy `.env.example` to `.env.local`.
+2. Fill it with **DEV/local** values only.
+3. Install from the committed lockfile and start Next.js.
+
 ```bash
-npm install
+cp .env.example .env.local
+npm ci
 npm run dev
 ```
 
-You may optionally provide:
-
-```bash
-NEXT_PUBLIC_SUPABASE_URL=...
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=...
-```
-
-The checked-in fallback is the challenge project's **public browser URL/publishable key only**; no database secret or service-role credential is committed.
+The app fails fast when either Supabase public variable is missing. That is intentional environment-isolation behavior, not an optional configuration path.
 
 ## Quality checks
 
-GitHub Actions runs a production `next build` on every implementation push/PR. Database QA covers anonymous RPC access, atomic claim behavior, no-show reappearance, expiry precedence, RLS/grants, and Supabase security advisors.
+GitHub Actions validates clean install, production dependency audit, lint, typecheck, unit tests, production build, and release/security preflight checks on the hardening branch/PR and `main`. Browser QA exercises the mobile core flow, recovery behavior, accessibility/design gates, and isolated DEV database behavior before promotion.
 
 ## Deliberate trade-offs
 
