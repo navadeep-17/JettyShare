@@ -172,6 +172,13 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
     }
   }, [reconcile])
 
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void reconcile()
+    }, 60_000)
+    return () => window.clearInterval(timer)
+  }, [reconcile])
+
   const nextBoundary = useMemo(() => {
     const times: number[] = []
     for (const post of posts) {
@@ -304,16 +311,18 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
     if (!window.confirm(`Release ${post.data?.claimant_label || 'the current claimant'}? This supply will become available to other boats.`)) return
     const key = `post:${post.id}`
     setBusyKey(key)
+    setNotice('')
     try {
       await ownerReleaseClaim(post.id, version, post.ownerToken)
       markUncertain(key, false)
       setNotice('Claim released by provider.')
       await onChanged()
     } catch (error) {
-      if (error instanceof JettyError) setNotice(`Could not release: ${error.code}`)
-      else {
+      if (error instanceof JettyError && error.code !== 'NETWORK') {
+        setNotice(`Could not release: ${error.code}. Checking the latest authoritative claim before enabling another action.`)
+      } else {
         markUncertain(key, true)
-        setNotice('CHECKING STATUS — connection interrupted. Destructive controls remain unavailable until reconciliation.')
+        setNotice('CHECKING STATUS — the provider release result is uncertain. The owner capability is retained and destructive controls stay unavailable until reconciliation proves the current generation.')
       }
     } finally {
       setBusyKey('')
@@ -327,6 +336,7 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
     if (!window.confirm(`Confirm physical collection by ${post.data?.claimant_label || 'the current claimant'}? This marks the listing COLLECTED and cannot be undone.`)) return
     const key = `post:${post.id}`
     setBusyKey(key)
+    setNotice('')
     try {
       await confirmCollected(post.id, version, post.ownerToken)
       removeOwnedListing(post.id)
@@ -334,10 +344,11 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
       setNotice('Collection confirmed.')
       await onChanged()
     } catch (error) {
-      if (error instanceof JettyError) setNotice(`Could not confirm: ${error.code}`)
-      else {
+      if (error instanceof JettyError && error.code !== 'NETWORK') {
+        setNotice(`Could not confirm: ${error.code}. Checking the latest authoritative state before enabling another action.`)
+      } else {
         markUncertain(key, true)
-        setNotice('CHECKING STATUS — connection interrupted. Destructive controls remain unavailable until reconciliation.')
+        setNotice('CHECKING STATUS — the collection result is uncertain. The owner capability is retained and destructive controls stay unavailable until reconciliation proves whether collection committed.')
       }
     } finally {
       setBusyKey('')
