@@ -1,11 +1,20 @@
 node_modules/
 .next/
 out/
-.env
-.env.local
-.env.*.local
 .vercel/
+
+# Local environment files; keep only the template tracked.
+.env*
+!.env.example
+
+# Test/build artifacts.
+playwright-report/
+test-results/
+coverage/
+
+# Local/editor noise.
 .DS_Store
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
