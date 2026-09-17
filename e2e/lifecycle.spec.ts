@@ -202,7 +202,8 @@ test.describe('Component 06 lifecycle and management release gates', () => {
 
     await page.goto('/')
     await page.getByRole('button', { name: 'Activity', exact: true }).click()
-    const card = page.locator('.managed-card', { hasText: 'BERTH LIFE-1' })
+    const postsSection = page.locator('.activity-section').filter({ has: page.getByRole('heading', { name: 'My Posts', exact: true }) })
+    const card = postsSection.locator('.managed-card', { hasText: 'BERTH LIFE-1' })
     await expect(card).toBeVisible()
     const confirm = card.getByRole('button', { name: 'Confirm collected', exact: true })
     await expect(confirm).toBeDisabled()
@@ -212,8 +213,9 @@ test.describe('Component 06 lifecycle and management release gates', () => {
     page.once('dialog', (dialog) => dialog.accept())
     await confirm.click()
 
-    await expect(card.getByText('COLLECTED', { exact: true })).toBeVisible()
-    await expect(card.getByText('Collected.', { exact: true })).toBeVisible()
+    await expect(card).toHaveCount(0, { timeout: 12_000 })
+    const historyCard = page.locator('[aria-label="Recent activity"] .managed-card', { hasText: 'BERTH LIFE-1' })
+    await expect(historyCard.getByText('COLLECTED', { exact: true })).toBeVisible()
     expect(confirmCalls).toBe(1)
     const owned = await page.evaluate(() => JSON.parse(localStorage.getItem('jettyshare:v1:owned-listings') || '{}'))
     expect(owned[LISTING_ID]).toBeUndefined()

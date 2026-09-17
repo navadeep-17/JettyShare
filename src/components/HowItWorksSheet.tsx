@@ -15,7 +15,7 @@ export function HowItWorksSheet({ onClose }: { onClose: () => void }) {
       <ol className="how-steps">
         <li>
           <span className="how-step-number" aria-hidden="true">1</span>
-          <div><strong>Post surplus</strong><span>Share ice or bait with quantity, berth and spoil time.</span></div>
+          <div><strong>Post surplus</strong><span>Share ice or bait with quantity, berth and spoil time. If it is no longer available, withdraw it from Activity.</span></div>
         </li>
         <li>
           <span className="how-step-number" aria-hidden="true">2</span>
@@ -28,8 +28,13 @@ export function HowItWorksSheet({ onClose }: { onClose: () => void }) {
       </ol>
 
       <div className="scope-note">
+        <strong>Activity stays device-local</strong>
+        <span>Current posts and claims keep their capability controls. Recent completed activity keeps only non-secret handoff details on this browser.</span>
+      </div>
+
+      <div className="scope-note">
         <strong>Deliberately lightweight</strong>
-        <span>No accounts · No OTPs · No payments · No chat · Just a claim-bound pickup proof.</span>
+        <span>No accounts · No OTPs · No payments · No chat · Just the authority needed for a fast, verifiable handoff.</span>
       </div>
 
       <button className="button button-primary how-done" onClick={onClose}>Got it</button>

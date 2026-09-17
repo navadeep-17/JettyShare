@@ -4,7 +4,7 @@ import type { BoardSnapshot, ClaimReceipt, CreateListingInput, ManagedClaimRecei
 export type JettyErrorCode =
   | 'INVALID_INPUT' | 'NOT_FOUND' | 'ITEM_EXPIRED' | 'CLAIM_UNAVAILABLE'
   | 'CLAIM_HOLD_EXPIRED' | 'STALE_CLAIM_VERSION' | 'CAPABILITY_INVALID'
-  | 'PICKUP_CODE_INVALID' | 'ALREADY_COLLECTED' | 'CONFLICT' | 'NETWORK'
+  | 'PICKUP_CODE_INVALID' | 'ALREADY_COLLECTED' | 'LISTING_WITHDRAWN' | 'CONFLICT' | 'NETWORK'
 
 export class JettyError extends Error {
   constructor(public code: JettyErrorCode, message?: string) { super(message ?? code) }
@@ -29,7 +29,7 @@ function requirePickupCode(pickupCode: string): void {
 
 function mapRpcError(error: { message?: string } | null): never {
   const message = error?.message ?? ''
-  const codes: JettyErrorCode[] = ['INVALID_INPUT','NOT_FOUND','ITEM_EXPIRED','CLAIM_UNAVAILABLE','CLAIM_HOLD_EXPIRED','STALE_CLAIM_VERSION','CAPABILITY_INVALID','PICKUP_CODE_INVALID','ALREADY_COLLECTED','CONFLICT']
+  const codes: JettyErrorCode[] = ['INVALID_INPUT','NOT_FOUND','ITEM_EXPIRED','CLAIM_UNAVAILABLE','CLAIM_HOLD_EXPIRED','STALE_CLAIM_VERSION','CAPABILITY_INVALID','PICKUP_CODE_INVALID','ALREADY_COLLECTED','LISTING_WITHDRAWN','CONFLICT']
   const code = codes.find((candidate) => message.includes(candidate))
   throw new JettyError(code ?? 'NETWORK', message)
 }
@@ -76,6 +76,12 @@ export async function releaseClaim(listingId: string, claimVersion: string, clai
 
 export async function ownerReleaseClaim(listingId: string, expectedClaimVersion: string, ownerToken: string) {
   const { data, error } = await api.rpc('owner_release_claim', { p_listing_id: listingId, p_expected_claim_version: expectedClaimVersion, p_owner_token: ownerToken })
+  if (error) mapRpcError(error)
+  return data
+}
+
+export async function withdrawListing(listingId: string, ownerToken: string) {
+  const { data, error } = await api.rpc('withdraw_listing', { p_listing_id: listingId, p_owner_token: ownerToken })
   if (error) mapRpcError(error)
   return data
 }

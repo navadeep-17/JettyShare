@@ -10,10 +10,14 @@ import {
   ownerReleaseClaim,
   releaseClaim,
   verifyPickupCode,
+  withdrawListing,
   JettyError,
 } from '@/lib/api'
 import { validateCrewLabel } from '@/lib/identity'
 import {
+  addActivityHistory,
+  clearActivityHistory,
+  getActivityHistory,
   getClaims,
   getOwnedListings,
   getProfile,
@@ -24,7 +28,7 @@ import {
   setOwnedListing,
 } from '@/lib/storage'
 import { adjustedNow, boardCountdown, serverClockOffset } from '@/lib/time'
-import type { ClaimLocalV1, CreateListingInput, OwnedListingLocalV1 } from '@/lib/types'
+import type { ActivityHistoryEntryV1, ActivityHistoryOutcome, ClaimLocalV1, CreateListingInput, OwnedListingLocalV1 } from '@/lib/types'
 
 type ManagedPost = {
   id: string
@@ -41,6 +45,7 @@ type ManagedClaim = {
   claimToken: string
   state: ClaimLocalV1['state']
   claimantLabel?: string
+  snapshot?: ClaimLocalV1['snapshot']
   data?: any
   error?: string
 }
@@ -50,15 +55,57 @@ function absoluteTime(value?: string) {
   return new Date(value).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 }
 
+function historyTime(value: string) {
+  return new Date(value).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+}
+
 function Deadline({ label, value, nowMs }: { label: string; value?: string; nowMs: number }) {
   if (!value) return null
   const countdown = boardCountdown(value, nowMs)
   return <div className="deadline-row"><span>{label}</span><strong>{countdown.text}</strong></div>
 }
 
+function postHistory(id: string, data: any, outcome: ActivityHistoryOutcome, occurredAt?: string): ActivityHistoryEntryV1 {
+  return {
+    historyId: `post:${id}:${outcome}`,
+    listingId: id,
+    role: 'POST',
+    outcome,
+    itemType: data?.item_type,
+    quantityValue: data?.quantity_value == null ? undefined : Number(data.quantity_value),
+    quantityUnit: data?.quantity_unit,
+    berth: data?.berth,
+    otherLabel: data?.claimant_label || undefined,
+    occurredAt: occurredAt || data?.withdrawn_at || data?.collected_at || (outcome === 'EXPIRED' ? data?.expires_at : null) || data?.server_now || new Date().toISOString(),
+  }
+}
+
+function claimHistory(id: string, entry: Pick<ClaimLocalV1, 'claimVersion' | 'snapshot'>, data: any, outcome: ActivityHistoryOutcome, occurredAt?: string): ActivityHistoryEntryV1 {
+  const snapshot = entry.snapshot
+  return {
+    historyId: `claim:${id}:${entry.claimVersion}:${outcome}`,
+    listingId: id,
+    role: 'CLAIM',
+    outcome,
+    itemType: data?.item_type ?? snapshot?.itemType,
+    quantityValue: data?.quantity_value == null ? snapshot?.quantityValue : Number(data.quantity_value),
+    quantityUnit: data?.quantity_unit ?? snapshot?.quantityUnit,
+    berth: data?.berth ?? snapshot?.berth,
+    otherLabel: data?.poster_label ?? snapshot?.posterLabel,
+    occurredAt: occurredAt || data?.withdrawn_at || data?.collected_at || (outcome === 'EXPIRED' ? data?.expires_at : null) || data?.server_now || new Date().toISOString(),
+  }
+}
+
+function outcomeLabel(outcome: ActivityHistoryOutcome) {
+  if (outcome === 'HOLD_ENDED') return 'HOLD ENDED'
+  if (outcome === 'ENDED') return 'RESERVATION ENDED'
+  return outcome
+}
+
 export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; onChanged: () => Promise<unknown> | unknown }) {
   const [posts, setPosts] = useState<ManagedPost[]>([])
   const [claims, setClaims] = useState<ManagedClaim[]>([])
+  const [history, setHistory] = useState<ActivityHistoryEntryV1[]>(() => getActivityHistory())
   const [loading, setLoading] = useState(true)
   const [busyKey, setBusyKey] = useState('')
   const [uncertainKeys, setUncertainKeys] = useState<Set<string>>(() => new Set())
@@ -97,14 +144,17 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
         if (data?.server_now) newestServerNow = data.server_now
         lastPostData.current.set(id, data)
         markUncertain(key, false)
-        nextPosts.push({ id, ownerToken: entry.ownerToken, state: entry.state, createPayload: entry.createPayload, data })
         if (entry.state === 'pending-create') {
           setOwnedListing(id, { ownerToken: entry.ownerToken, state: 'managed', createdLocallyAt: entry.createdLocallyAt })
         }
-        if (data?.effective_status === 'COLLECTED' || data?.effective_status === 'EXPIRED') {
+        if (['COLLECTED', 'EXPIRED', 'WITHDRAWN'].includes(data?.effective_status)) {
+          const outcome = data.effective_status as ActivityHistoryOutcome
+          addActivityHistory(postHistory(id, data, outcome))
           removeOwnedListing(id)
           lastPostData.current.delete(id)
+          continue
         }
+        nextPosts.push({ id, ownerToken: entry.ownerToken, state: entry.state, createPayload: entry.createPayload, data })
       } catch (error) {
         const code = error instanceof JettyError ? error.code : 'NETWORK'
         if (code === 'NETWORK') markUncertain(key, true)
@@ -134,26 +184,46 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
         if (data?.server_now) newestServerNow = data.server_now
         lastClaimData.current.set(id, data)
         markUncertain(key, false)
-        if (['COLLECTED', 'EXPIRED', 'ACTIVE'].includes(data?.effective_status)) {
+        if (['COLLECTED', 'EXPIRED', 'ACTIVE', 'WITHDRAWN'].includes(data?.effective_status)) {
+          const outcome: ActivityHistoryOutcome = data.effective_status === 'ACTIVE'
+            ? 'HOLD_ENDED'
+            : data.effective_status as ActivityHistoryOutcome
+          addActivityHistory(claimHistory(id, entry, data, outcome))
           removeClaim(id)
           lastClaimData.current.delete(id)
           continue
         }
-        nextClaims.push({ id, claimVersion: entry.claimVersion, claimToken: entry.claimToken, state: entry.state, claimantLabel: entry.claimantLabel, data })
-        if (data?.effective_status === 'CLAIMED' && entry.state === 'pending-claim') {
+        nextClaims.push({ id, claimVersion: entry.claimVersion, claimToken: entry.claimToken, state: entry.state, claimantLabel: entry.claimantLabel, snapshot: entry.snapshot, data })
+        if (data?.effective_status === 'CLAIMED') {
           setClaim(id, {
             ...entry,
             state: 'held',
             claimExpiresAt: data.claim_expires_at,
             itemExpiresAt: data.expires_at,
+            snapshot: entry.snapshot ?? {
+              itemType: data.item_type,
+              quantityValue: Number(data.quantity_value),
+              quantityUnit: data.quantity_unit,
+              berth: data.berth,
+              posterLabel: data.poster_label,
+            },
           })
         }
       } catch (error) {
         const code = error instanceof JettyError ? error.code : 'NETWORK'
         if (code === 'NETWORK') markUncertain(key, true)
         const pendingRetry = entry.state === 'pending-claim' && code === 'STALE_CLAIM_VERSION'
-        const endedClaim = !pendingRetry && ['STALE_CLAIM_VERSION', 'ITEM_EXPIRED', 'NOT_FOUND', 'ALREADY_COLLECTED', 'CLAIM_HOLD_EXPIRED', 'CAPABILITY_INVALID'].includes(code)
+        const endedClaim = !pendingRetry && ['STALE_CLAIM_VERSION', 'ITEM_EXPIRED', 'NOT_FOUND', 'ALREADY_COLLECTED', 'CLAIM_HOLD_EXPIRED', 'CAPABILITY_INVALID', 'LISTING_WITHDRAWN'].includes(code)
         if (endedClaim) {
+          const known = lastClaimData.current.get(id)
+          const outcome: ActivityHistoryOutcome = code === 'ITEM_EXPIRED'
+            ? 'EXPIRED'
+            : code === 'ALREADY_COLLECTED'
+              ? 'COLLECTED'
+              : code === 'LISTING_WITHDRAWN'
+                ? 'WITHDRAWN'
+                : 'ENDED'
+          addActivityHistory(claimHistory(id, entry, known, outcome))
           removeClaim(id)
           lastClaimData.current.delete(id)
           markUncertain(key, false)
@@ -165,6 +235,7 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
           claimToken: entry.claimToken,
           state: entry.state,
           claimantLabel: entry.claimantLabel,
+          snapshot: entry.snapshot,
           data: code === 'NETWORK' ? lastClaimData.current.get(id) : undefined,
           error: pendingRetry ? 'PENDING_RETRY' : code,
         })
@@ -179,6 +250,7 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
     }
     setPosts(nextPosts)
     setClaims(nextClaims)
+    setHistory(getActivityHistory())
     setLoading(false)
   }, [])
 
@@ -289,12 +361,21 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
         requestedLocallyAt: new Date().toISOString(),
         claimExpiresAt: data.claim_expires_at,
         itemExpiresAt: data.expires_at,
+        snapshot: claim.snapshot ?? {
+          itemType: data.item_type,
+          quantityValue: Number(data.quantity_value),
+          quantityUnit: data.quantity_unit,
+          berth: data.berth,
+          posterLabel: data.poster_label,
+        },
       })
       markUncertain(key, false)
       setNotice('Claim recovered. Pickup directions are shown below.')
       await onChanged()
     } catch (error) {
-      if (error instanceof JettyError && ['CLAIM_UNAVAILABLE', 'ITEM_EXPIRED', 'NOT_FOUND', 'ALREADY_COLLECTED', 'CLAIM_HOLD_EXPIRED'].includes(error.code)) {
+      if (error instanceof JettyError && ['CLAIM_UNAVAILABLE', 'ITEM_EXPIRED', 'NOT_FOUND', 'ALREADY_COLLECTED', 'CLAIM_HOLD_EXPIRED', 'LISTING_WITHDRAWN'].includes(error.code)) {
+        addActivityHistory(claimHistory(claim.id, { claimVersion: claim.claimVersion, snapshot: claim.snapshot }, claim.data, error.code === 'ITEM_EXPIRED' ? 'EXPIRED' : error.code === 'ALREADY_COLLECTED' ? 'COLLECTED' : error.code === 'LISTING_WITHDRAWN' ? 'WITHDRAWN' : 'ENDED'))
+        setHistory(getActivityHistory())
         removeClaim(claim.id)
         setNotice('That saved claim attempt can no longer win the supply. The board was refreshed.')
         await onChanged()
@@ -314,14 +395,26 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
     setBusyKey(key)
     setNotice('')
     try {
+      const data = claim.data ?? lastClaimData.current.get(claim.id)
       await releaseClaim(claim.id, claim.claimVersion, claim.claimToken)
+      addActivityHistory(claimHistory(claim.id, { claimVersion: claim.claimVersion, snapshot: claim.snapshot }, data, 'RELEASED'))
+      setHistory(getActivityHistory())
       removeClaim(claim.id)
       lastClaimData.current.delete(claim.id)
       markUncertain(key, false)
       setNotice('Claim released — supply is available again if it is still fresh.')
       await onChanged()
     } catch (error) {
-      if (error instanceof JettyError && ['STALE_CLAIM_VERSION', 'CLAIM_HOLD_EXPIRED', 'ITEM_EXPIRED', 'ALREADY_COLLECTED', 'CLAIM_UNAVAILABLE'].includes(error.code)) {
+      if (error instanceof JettyError && ['STALE_CLAIM_VERSION', 'CLAIM_HOLD_EXPIRED', 'ITEM_EXPIRED', 'ALREADY_COLLECTED', 'CLAIM_UNAVAILABLE', 'LISTING_WITHDRAWN'].includes(error.code)) {
+        const outcome: ActivityHistoryOutcome = error.code === 'ITEM_EXPIRED'
+          ? 'EXPIRED'
+          : error.code === 'ALREADY_COLLECTED'
+            ? 'COLLECTED'
+            : error.code === 'LISTING_WITHDRAWN'
+              ? 'WITHDRAWN'
+              : 'ENDED'
+        addActivityHistory(claimHistory(claim.id, { claimVersion: claim.claimVersion, snapshot: claim.snapshot }, claim.data ?? lastClaimData.current.get(claim.id), outcome))
+        setHistory(getActivityHistory())
         removeClaim(claim.id)
         lastClaimData.current.delete(claim.id)
         setNotice('That reservation had already ended.')
@@ -357,7 +450,7 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
         delete next[verificationKey]
         return next
       })
-      setNotice('Claim released by provider.')
+      setNotice('Claim released by provider. The supply is available again.')
       await onChanged()
     } catch (error) {
       if (error instanceof JettyError && error.code !== 'NETWORK') {
@@ -365,6 +458,52 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
       } else {
         markUncertain(key, true)
         setNotice('CHECKING STATUS — the provider release result is uncertain. The owner capability is retained and destructive controls stay unavailable until reconciliation proves the current generation.')
+      }
+    } finally {
+      setBusyKey('')
+      await reconcile()
+    }
+  }
+
+  async function withdrawPost(post: ManagedPost) {
+    const claimed = post.data?.effective_status === 'CLAIMED'
+    const prompt = claimed
+      ? `Withdraw this supply? ${post.data?.claimant_label || 'The current claimant'} will lose the reservation and the supply will disappear from the board.`
+      : 'Withdraw this supply? It will immediately disappear from the public board.'
+    if (!window.confirm(prompt)) return
+
+    const key = `post:${post.id}`
+    const withdrawKey = `${key}:withdraw`
+    setBusyKey(withdrawKey)
+    setNotice('')
+    try {
+      const result = await withdrawListing(post.id, post.ownerToken)
+      const terminalData = {
+        ...post.data,
+        effective_status: 'WITHDRAWN',
+        withdrawn_at: result?.withdrawn_at,
+        expires_at: result?.withdrawn_at ?? post.data?.expires_at,
+        server_now: result?.server_now,
+      }
+      addActivityHistory(postHistory(post.id, terminalData, 'WITHDRAWN', result?.withdrawn_at))
+      setHistory(getActivityHistory())
+      removeOwnedListing(post.id)
+      lastPostData.current.delete(post.id)
+      markUncertain(key, false)
+      setNotice(claimed
+        ? 'Supply withdrawn — the current reservation was cancelled and the item is no longer available.'
+        : 'Supply withdrawn — it has been removed from the public board.')
+      await onChanged()
+    } catch (error) {
+      if (error instanceof JettyError && ['ITEM_EXPIRED', 'ALREADY_COLLECTED'].includes(error.code)) {
+        setNotice(error.code === 'ITEM_EXPIRED'
+          ? 'This supply had already expired. Checking the latest activity.'
+          : 'This supply had already been collected. Checking the latest activity.')
+      } else if (error instanceof JettyError && error.code !== 'NETWORK') {
+        setNotice(`Could not withdraw: ${error.code}. The post remains saved until its authoritative state is checked.`)
+      } else {
+        markUncertain(key, true)
+        setNotice('CHECKING STATUS — the withdrawal result is uncertain. The owner capability is retained until reconciliation proves the outcome.')
       }
     } finally {
       setBusyKey('')
@@ -428,7 +567,9 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
     setBusyKey(key)
     setNotice('')
     try {
-      await confirmCollected(post.id, version, post.ownerToken, pickupCode)
+      const result = await confirmCollected(post.id, version, post.ownerToken, pickupCode)
+      addActivityHistory(postHistory(post.id, { ...post.data, collected_at: result?.collected_at, server_now: result?.server_now }, 'COLLECTED', result?.collected_at))
+      setHistory(getActivityHistory())
       removeOwnedListing(post.id)
       lastPostData.current.delete(post.id)
       markUncertain(key, false)
@@ -459,12 +600,19 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
     }
   }
 
+  function clearHistory() {
+    if (!window.confirm('Clear recent activity stored on this browser? This does not affect live posts or claims.')) return
+    clearActivityHistory()
+    setHistory([])
+    setNotice('Recent activity cleared from this browser.')
+  }
+
   return <div className="overlay" role="presentation">
     <div className="sheet activity-sheet" role="dialog" aria-modal="true" aria-labelledby="activity-title">
       <button className="sheet-close" onClick={onClose} aria-label="Close">×</button>
       <p className="eyebrow">DEVICE ACTIVITY</p>
       <h2 id="activity-title">My Activity</h2>
-      <p className="muted">Posts and claims controlled by this browser.</p>
+      <p className="muted">Current controls and recent history for this browser only.</p>
       {notice && <div className="banner" role="status">{notice}</div>}
 
       <section className="profile-panel" aria-label="Local boat or crew label">
@@ -533,10 +681,15 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
                     <button className="button button-primary" disabled={busyKey === key || uncertain || !holdLive || !pickupVerified} onClick={()=>void collect(post)}>{holdLive ? 'Confirm collected' : 'Reservation ended'}</button>
                     <button className="button" disabled={busyKey === key || uncertain || !holdLive} onClick={()=>void releaseAsOwner(post)}>Release claim</button>
                   </div>
+                  <div className="stack">
+                    <button className="button" disabled={Boolean(busyKey) || uncertain} onClick={()=>void withdrawPost(post)}>{busyKey === `${key}:withdraw` ? 'Withdrawing…' : 'Withdraw supply'}</button>
+                    <p className="muted">Use Withdraw only if this supply is no longer available. It cancels the current reservation instead of reopening the item.</p>
+                  </div>
                 </>}
-                {post.data.effective_status === 'ACTIVE' && <p className="muted">Available on the public board.</p>}
-                {post.data.effective_status === 'EXPIRED' && <p className="muted">Expired.</p>}
-                {post.data.effective_status === 'COLLECTED' && <p className="muted">Collected.</p>}
+                {post.data.effective_status === 'ACTIVE' && <>
+                  <p className="muted">Available on the public board.</p>
+                  <button className="button" disabled={Boolean(busyKey) || uncertain} onClick={()=>void withdrawPost(post)}>{busyKey === `${key}:withdraw` ? 'Withdrawing…' : 'Withdraw supply'}</button>
+                </>}
               </>}
             </article>
           })}
@@ -574,6 +727,24 @@ export function MyActivitySheet({ onClose, onChanged }: { onClose: () => void; o
               </>}
             </article>
           })}
+        </section>
+
+        <section className="activity-section" aria-label="Recent activity">
+          <div className="managed-top">
+            <h3>Recent Activity</h3>
+            {history.length > 0 && <button className="link-button" onClick={clearHistory}>Clear</button>}
+          </div>
+          <p className="muted">Completed activity is stored only on this browser. Capability keys and pickup codes are never kept in history.</p>
+          {history.length === 0 ? <p className="muted">No completed activity saved on this device yet.</p> : history.map((entry) => <article className="managed-card" key={entry.historyId}>
+            <div className="managed-top">
+              <strong>{entry.role === 'POST' ? 'POST' : 'CLAIM'}{entry.itemType ? ` · ${entry.itemType}` : ''}</strong>
+              <span className={`status${entry.outcome === 'WITHDRAWN' || entry.outcome === 'ENDED' ? ' status-warning' : ''}`}>{outcomeLabel(entry.outcome)}</span>
+            </div>
+            {entry.quantityValue != null && entry.quantityUnit && <p>{entry.quantityValue} {entry.quantityUnit}</p>}
+            {entry.berth && <p className="berth compact-berth">BERTH {entry.berth}</p>}
+            {entry.otherLabel && <p className="muted">{entry.role === 'POST' ? 'Last claimant' : 'From'}: {entry.otherLabel}</p>}
+            <p className="muted">{historyTime(entry.occurredAt)}</p>
+          </article>)}
         </section>
       </>}
     </div>

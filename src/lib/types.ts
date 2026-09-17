@@ -30,6 +30,14 @@ export type OwnedListingLocalV1 = {
   createdLocallyAt: string
 }
 
+export type ClaimSnapshotV1 = {
+  itemType: ItemType
+  quantityValue: number
+  quantityUnit: QuantityUnit
+  berth: string
+  posterLabel: string
+}
+
 export type ClaimLocalV1 = {
   claimVersion: string
   claimToken: string
@@ -38,6 +46,23 @@ export type ClaimLocalV1 = {
   requestedLocallyAt: string
   claimExpiresAt?: string
   itemExpiresAt?: string
+  snapshot?: ClaimSnapshotV1
+}
+
+export type ActivityHistoryRole = 'POST' | 'CLAIM'
+export type ActivityHistoryOutcome = 'COLLECTED' | 'RELEASED' | 'EXPIRED' | 'WITHDRAWN' | 'HOLD_ENDED' | 'ENDED'
+
+export type ActivityHistoryEntryV1 = {
+  historyId: string
+  listingId: string
+  role: ActivityHistoryRole
+  outcome: ActivityHistoryOutcome
+  itemType?: ItemType
+  quantityValue?: number
+  quantityUnit?: QuantityUnit
+  berth?: string
+  otherLabel?: string
+  occurredAt: string
 }
 
 export type CreateListingInput = {
@@ -66,5 +91,5 @@ export type ClaimReceipt = {
 }
 
 export type ManagedClaimReceipt = ClaimReceipt & {
-  effective_status: 'ACTIVE' | 'CLAIMED' | 'COLLECTED' | 'EXPIRED'
+  effective_status: 'ACTIVE' | 'CLAIMED' | 'COLLECTED' | 'EXPIRED' | 'WITHDRAWN'
 }
