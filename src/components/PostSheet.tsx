@@ -1,6 +1,6 @@
 'use client'
 
-import { FormEvent, useRef, useState } from 'react'
+import { FormEvent, useEffect, useRef, useState } from 'react'
 import { useModalFocus } from '@/hooks/useModalFocus'
 import { createListing, JettyError } from '@/lib/api'
 import { newListingId, randomCapability } from '@/lib/capabilities'
@@ -34,6 +34,32 @@ export function PostSheet({ crewLabel, onClose, onPosted }: { crewLabel: string;
   const [attempt, setAttempt] = useState<PendingAttempt | null>(null)
 
   const locked = Boolean(attempt)
+
+  useEffect(() => {
+    const shell = document.querySelector('.app-shell')
+    if (!shell) return
+
+    const background = Array.from(shell.children)
+      .filter((element) => !element.classList.contains('overlay')) as HTMLElement[]
+    const previous = background.map((element) => ({
+      element,
+      inert: element.inert,
+      ariaHidden: element.getAttribute('aria-hidden'),
+    }))
+
+    for (const element of background) {
+      element.inert = true
+      element.setAttribute('aria-hidden', 'true')
+    }
+
+    return () => {
+      for (const entry of previous) {
+        entry.element.inert = entry.inert
+        if (entry.ariaHidden === null) entry.element.removeAttribute('aria-hidden')
+        else entry.element.setAttribute('aria-hidden', entry.ariaHidden)
+      }
+    }
+  }, [])
 
   function clearFieldError(field: keyof FieldErrors) {
     setFieldErrors((current) => {
