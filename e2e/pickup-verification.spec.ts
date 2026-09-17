@@ -23,6 +23,10 @@ async function postSupply(page: Page, label: string, berth: string) {
   await expect(page.getByText(`BERTH ${berth}`, { exact: true }).first()).toBeVisible()
 }
 
+function activitySection(page: Page, heading: 'My Posts' | 'My Claims') {
+  return page.locator('.activity-section').filter({ has: page.getByRole('heading', { name: heading, exact: true }) })
+}
+
 test('pickup verification binds the physical handoff to the claimant session and gates collection server-side', async ({ browser }) => {
   const id = suffix()
   const berth = `V${id}`.slice(0, 12)
@@ -56,13 +60,13 @@ test('pickup verification binds the physical handoff to the claimant session and
     // claim authority is already persisted locally and the server receipt is capability-gated.
     await claimant.reload()
     await claimant.getByRole('button', { name: 'Activity', exact: true }).click()
-    const claimantActivity = claimant.locator('.managed-card', { hasText: `BERTH ${berth}` })
+    const claimantActivity = activitySection(claimant, 'My Claims').locator('.managed-card', { hasText: `BERTH ${berth}` })
     await expect(claimantActivity).toBeVisible({ timeout: 20_000 })
     await expect(claimantActivity.getByText(pickupCode, { exact: true })).toBeVisible()
     await claimant.getByRole('button', { name: 'Close', exact: true }).click()
 
     await provider.getByRole('button', { name: 'Activity', exact: true }).click()
-    const managedPost = provider.locator('.managed-card', { hasText: `BERTH ${berth}` })
+    const managedPost = activitySection(provider, 'My Posts').locator('.managed-card', { hasText: `BERTH ${berth}` })
     await expect(managedPost.getByText(`Claimed by ${claimantLabel}`)).toBeVisible({ timeout: 20_000 })
 
     // Provider management never receives/displays the expected code before the
@@ -94,6 +98,8 @@ test('pickup verification binds the physical handoff to the claimant session and
     await confirm.click()
     await expect(managedPost).toHaveCount(0, { timeout: 20_000 })
     expect(collectedBody).toMatchObject({ p_pickup_code: pickupCode })
+    const providerHistory = provider.locator('[aria-label="Recent activity"] .managed-card', { hasText: `BERTH ${berth}` })
+    await expect(providerHistory.getByText('COLLECTED', { exact: true })).toBeVisible()
 
     await provider.getByRole('button', { name: 'Close', exact: true }).click()
     await claimant.reload()
