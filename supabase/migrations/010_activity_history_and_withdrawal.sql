@@ -20,7 +20,9 @@ begin
 end
 $$;
 
-create or replace function private.effective_status(p_listing public.listings, p_now timestamptz)
+-- Keep the existing parameter name `p` so CREATE OR REPLACE remains compatible
+-- with already-deployed environments where PostgreSQL records that input name.
+create or replace function private.effective_status(p public.listings, p_now timestamptz)
 returns text
 language sql
 immutable
@@ -28,10 +30,10 @@ security definer
 set search_path=''
 as $$
   select case
-    when p_listing.withdrawn_at is not null then 'WITHDRAWN'
-    when p_listing.stored_status='COLLECTED' then 'COLLECTED'
-    when p_listing.expires_at <= p_now then 'EXPIRED'
-    when p_listing.stored_status='CLAIMED' and p_listing.claim_expires_at > p_now then 'CLAIMED'
+    when p.withdrawn_at is not null then 'WITHDRAWN'
+    when p.stored_status='COLLECTED' then 'COLLECTED'
+    when p.expires_at <= p_now then 'EXPIRED'
+    when p.stored_status='CLAIMED' and p.claim_expires_at > p_now then 'CLAIMED'
     else 'ACTIVE'
   end
 $$;
