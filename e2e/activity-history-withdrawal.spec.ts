@@ -41,6 +41,10 @@ async function openActivity(page: Page) {
   await expect(page.getByRole('heading', { name: 'My Activity' })).toBeVisible()
 }
 
+function activitySection(page: Page, heading: 'My Posts' | 'My Claims') {
+  return page.locator('.activity-section').filter({ has: page.getByRole('heading', { name: heading, exact: true }) })
+}
+
 test('completed handoff leaves redacted recent activity on both participating browsers', async ({ browser }) => {
   const id = suffix()
   const berth = `H${id}`.slice(0, 12)
@@ -59,7 +63,8 @@ test('completed handoff leaves redacted recent activity on both participating br
     const pickupCode = await claimSupply(claimant, claimantLabel, berth)
 
     await openActivity(provider)
-    const managedPost = provider.locator('.managed-card', { hasText: `BERTH ${berth}` }).first()
+    const providerPosts = activitySection(provider, 'My Posts')
+    const managedPost = providerPosts.locator('.managed-card', { hasText: `BERTH ${berth}` })
     await expect(managedPost.getByText(`Claimed by ${claimantLabel}`)).toBeVisible({ timeout: 20_000 })
     const input = managedPost.getByLabel(`Pickup code for berth ${berth}`)
     await input.fill(pickupCode)
@@ -75,6 +80,8 @@ test('completed handoff leaves redacted recent activity on both participating br
     await expect(providerHistory.getByText(/Last claimant:/)).toContainText(claimantLabel)
 
     await openActivity(claimant)
+    const claimantClaims = activitySection(claimant, 'My Claims')
+    await expect(claimantClaims.locator('.managed-card', { hasText: `BERTH ${berth}` })).toHaveCount(0)
     const claimantHistory = claimant.locator('[aria-label="Recent activity"] .managed-card', { hasText: `BERTH ${berth}` })
     await expect(claimantHistory).toBeVisible({ timeout: 20_000 })
     await expect(claimantHistory.getByText('COLLECTED', { exact: true })).toBeVisible()
@@ -104,7 +111,8 @@ test('provider can withdraw active or claimed supply and a claimant sees WITHDRA
 
     await postSupply(provider, providerLabel, activeBerth, '6')
     await openActivity(provider)
-    const activePost = provider.locator('.managed-card', { hasText: `BERTH ${activeBerth}` }).first()
+    const providerPosts = activitySection(provider, 'My Posts')
+    const activePost = providerPosts.locator('.managed-card', { hasText: `BERTH ${activeBerth}` })
     await expect(activePost.getByText('ACTIVE', { exact: true })).toBeVisible()
     provider.once('dialog', (dialog) => dialog.accept())
     await activePost.getByRole('button', { name: 'Withdraw supply', exact: true }).click()
@@ -117,7 +125,7 @@ test('provider can withdraw active or claimed supply and a claimant sees WITHDRA
     await postSupply(provider, providerLabel, claimedBerth, '7')
     await claimSupply(claimant, claimantLabel, claimedBerth)
     await openActivity(provider)
-    const claimedPost = provider.locator('.managed-card', { hasText: `BERTH ${claimedBerth}` }).first()
+    const claimedPost = activitySection(provider, 'My Posts').locator('.managed-card', { hasText: `BERTH ${claimedBerth}` })
     await expect(claimedPost.getByText(`Claimed by ${claimantLabel}`)).toBeVisible({ timeout: 20_000 })
     provider.once('dialog', (dialog) => dialog.accept())
     await claimedPost.getByRole('button', { name: 'Withdraw supply', exact: true }).click()
@@ -126,6 +134,8 @@ test('provider can withdraw active or claimed supply and a claimant sees WITHDRA
     await expect(claimedHistory.getByText('WITHDRAWN', { exact: true })).toBeVisible()
 
     await openActivity(claimant)
+    const claimantClaims = activitySection(claimant, 'My Claims')
+    await expect(claimantClaims.locator('.managed-card', { hasText: `BERTH ${claimedBerth}` })).toHaveCount(0, { timeout: 20_000 })
     const claimantHistory = claimant.locator('[aria-label="Recent activity"] .managed-card', { hasText: `BERTH ${claimedBerth}` })
     await expect(claimantHistory).toBeVisible({ timeout: 20_000 })
     await expect(claimantHistory.getByText('WITHDRAWN', { exact: true })).toBeVisible()
