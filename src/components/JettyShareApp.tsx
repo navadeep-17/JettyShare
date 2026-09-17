@@ -42,6 +42,7 @@ export function JettyShareApp() {
   const [lastKnownOffer, setLastKnownOffer] = useState<string | null>(null)
   const [copyBusy, setCopyBusy] = useState(false)
   const copyBusyRef = useRef(false)
+  const invalidPendingClaimIdsRef = useRef<Set<string>>(new Set())
   const [notice, setNotice] = useState('')
   const [online, setOnline] = useState(() => typeof navigator === 'undefined' ? true : navigator.onLine)
 
@@ -109,8 +110,15 @@ export function JettyShareApp() {
         }
       } catch (error) {
         const code = error instanceof JettyError ? error.code : 'NETWORK'
+        if (['CAPABILITY_INVALID', 'INVALID_INPUT'].includes(code)) {
+          invalidPendingClaimIdsRef.current.add(listingId)
+          removeClaim(listingId)
+          setNotice('This saved claim could not be verified on this device.')
+          await refresh()
+          continue
+        }
         if (!['STALE_CLAIM_VERSION', 'NETWORK'].includes(code)) {
-          if (['ITEM_EXPIRED', 'NOT_FOUND', 'ALREADY_COLLECTED', 'CLAIM_HOLD_EXPIRED', 'CAPABILITY_INVALID'].includes(code)) {
+          if (['ITEM_EXPIRED', 'NOT_FOUND', 'ALREADY_COLLECTED', 'CLAIM_HOLD_EXPIRED'].includes(code)) {
             removeClaim(listingId)
             await refresh()
           }
@@ -131,7 +139,14 @@ export function JettyShareApp() {
         await refresh()
       } catch (error) {
         const code = error instanceof JettyError ? error.code : 'NETWORK'
-        if (['CLAIM_UNAVAILABLE', 'ITEM_EXPIRED', 'NOT_FOUND', 'ALREADY_COLLECTED', 'CLAIM_HOLD_EXPIRED', 'STALE_CLAIM_VERSION', 'CAPABILITY_INVALID', 'INVALID_INPUT'].includes(code)) {
+        if (['CAPABILITY_INVALID', 'INVALID_INPUT'].includes(code)) {
+          invalidPendingClaimIdsRef.current.add(listingId)
+          removeClaim(listingId)
+          setNotice('This saved claim could not be verified on this device.')
+          await refresh()
+          continue
+        }
+        if (['CLAIM_UNAVAILABLE', 'ITEM_EXPIRED', 'NOT_FOUND', 'ALREADY_COLLECTED', 'CLAIM_HOLD_EXPIRED', 'STALE_CLAIM_VERSION'].includes(code)) {
           removeClaim(listingId)
           await refresh()
         }
@@ -159,6 +174,11 @@ export function JettyShareApp() {
     const run = async () => {
       if (!storageAvailable()) {
         setNotice('This browser can’t save the access key needed to manage a claim. Enable site storage or use normal browsing mode.')
+        return
+      }
+
+      if (invalidPendingClaimIdsRef.current.delete(item.id)) {
+        setNotice('This saved claim could not be verified on this device.')
         return
       }
 
